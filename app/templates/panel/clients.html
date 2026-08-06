@@ -1,0 +1,330 @@
+{% extends "panel/base.html" %}
+
+{% block content %}
+<main class="container">
+    <header class="page-header">
+        <h1>Clientes</h1>
+        <p>
+            Administra grupos y chats autorizados,
+            precios, lotes y cortes diarios.
+        </p>
+    </header>
+
+    {% if message %}
+    <div class="alert alert-success">
+        {{ message }}
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="alert alert-error">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <section class="card">
+        <h2>Agregar cliente</h2>
+
+        <form method="post" action="/panel/clients/create">
+            <input
+                type="hidden"
+                name="csrf_token"
+                value="{{ csrf_token }}"
+            >
+
+            <div class="grid">
+                <div>
+                    <label>Nombre</label>
+                    <input
+                        name="name"
+                        type="text"
+                        placeholder="Prueba lotes"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label>Tipo</label>
+                    <select name="source_type" required>
+                        <option value="group">Grupo</option>
+                        <option value="private">Chat privado</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label>JID de WhatsApp</label>
+                    <input
+                        name="whatsapp_jid"
+                        type="text"
+                        placeholder="120363...@g.us"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label>Precio por solicitud</label>
+                    <input
+                        name="price_per_request"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value="0.00"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label>Intervalo del lote</label>
+                    <input
+                        name="batch_interval_minutes"
+                        type="number"
+                        min="1"
+                        max="1440"
+                        value="15"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label>Máximo por lote</label>
+                    <input
+                        name="batch_max_items"
+                        type="number"
+                        min="1"
+                        max="1000"
+                        value="50"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label>Hora de corte</label>
+                    <input
+                        name="daily_cutoff_time"
+                        type="time"
+                        value="23:30"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label>Zona horaria</label>
+                    <input
+                        name="timezone"
+                        type="text"
+                        value="America/Monterrey"
+                        required
+                    >
+                </div>
+
+                <div class="checkbox-row">
+                    <input
+                        id="batch_enabled"
+                        name="batch_enabled"
+                        type="checkbox"
+                        checked
+                    >
+                    <label for="batch_enabled">
+                        Lotes habilitados
+                    </label>
+                </div>
+
+                <div class="checkbox-row">
+                    <input
+                        id="daily_cutoff_enabled"
+                        name="daily_cutoff_enabled"
+                        type="checkbox"
+                        checked
+                    >
+                    <label for="daily_cutoff_enabled">
+                        Corte diario habilitado
+                    </label>
+                </div>
+
+                <div class="checkbox-row">
+                    <input
+                        id="active"
+                        name="active"
+                        type="checkbox"
+                        checked
+                    >
+                    <label for="active">
+                        Cliente activo
+                    </label>
+                </div>
+
+                <div class="actions">
+                    <button type="submit">
+                        Agregar cliente
+                    </button>
+                </div>
+            </div>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>Clientes registrados</h2>
+
+        {% if not clients %}
+        <p class="muted">
+            Todavía no existen clientes registrados.
+        </p>
+        {% else %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Cliente</th>
+                        <th>JID</th>
+                        <th>Precio</th>
+                        <th>Lote</th>
+                        <th>Corte</th>
+                        <th>Estado</th>
+                        <th>Guardar</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                {% for client in clients %}
+                    <tr>
+                        <form
+                            method="post"
+                            action="/panel/clients/{{ client.id }}/update"
+                        >
+                            <input
+                                type="hidden"
+                                name="csrf_token"
+                                value="{{ csrf_token }}"
+                            >
+
+                            <td>
+                                <input
+                                    name="name"
+                                    value="{{ client.name }}"
+                                    required
+                                >
+
+                                <input
+                                    name="source_type"
+                                    value="{{ client.source_type }}"
+                                    type="hidden"
+                                >
+                            </td>
+
+                            <td>
+                                <input
+                                    name="whatsapp_jid"
+                                    value="{{ client.whatsapp_jid }}"
+                                    required
+                                >
+                            </td>
+
+                            <td>
+                                <input
+                                    name="price_per_request"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value="{{ client.price_per_request }}"
+                                    required
+                                >
+                            </td>
+
+                            <td>
+                                <input
+                                    name="batch_interval_minutes"
+                                    type="number"
+                                    min="1"
+                                    max="1440"
+                                    value="{{ client.batch_interval_minutes }}"
+                                    required
+                                >
+
+                                <input
+                                    name="batch_max_items"
+                                    type="number"
+                                    min="1"
+                                    max="1000"
+                                    value="{{ client.batch_max_items }}"
+                                    required
+                                >
+                            </td>
+
+                            <td>
+                                <input
+                                    name="daily_cutoff_time"
+                                    type="time"
+                                    value="{{ client.daily_cutoff_time }}"
+                                    required
+                                >
+
+                                <input
+                                    name="timezone"
+                                    value="{{ client.timezone }}"
+                                    required
+                                >
+                            </td>
+
+                            <td>
+                                {% if client.active %}
+                                <span class="status status-active">
+                                    Activo
+                                </span>
+                                {% else %}
+                                <span class="status status-inactive">
+                                    Inactivo
+                                </span>
+                                {% endif %}
+
+                                <div class="checkbox-row">
+                                    <input
+                                        id="active_{{ client.id }}"
+                                        name="active"
+                                        type="checkbox"
+                                        {% if client.active %}checked{% endif %}
+                                    >
+                                    <label for="active_{{ client.id }}">
+                                        Habilitado
+                                    </label>
+                                </div>
+
+                                <div class="checkbox-row">
+                                    <input
+                                        id="batch_{{ client.id }}"
+                                        name="batch_enabled"
+                                        type="checkbox"
+                                        {% if client.batch_enabled %}checked{% endif %}
+                                    >
+                                    <label for="batch_{{ client.id }}">
+                                        Lotes
+                                    </label>
+                                </div>
+
+                                <div class="checkbox-row">
+                                    <input
+                                        id="cutoff_{{ client.id }}"
+                                        name="daily_cutoff_enabled"
+                                        type="checkbox"
+                                        {% if client.daily_cutoff_enabled %}checked{% endif %}
+                                    >
+                                    <label for="cutoff_{{ client.id }}">
+                                        Corte
+                                    </label>
+                                </div>
+                            </td>
+
+                            <td>
+                                <button type="submit">
+                                    Guardar
+                                </button>
+                            </td>
+                        </form>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </section>
+</main>
+{% endblock %}

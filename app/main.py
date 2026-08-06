@@ -1,19 +1,38 @@
 from fastapi import FastAPI
 from sqlalchemy import text
+from starlette.middleware.sessions import (
+    SessionMiddleware,
+)
 
 from app.config import settings
 from app.database import engine
 from app.redis_client import redis_client
-from app.routes.webhooks import router as webhooks_router
+from app.routes.panel import router as panel_router
+from app.routes.webhooks import (
+    router as webhooks_router,
+)
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.2.0",
+    version="0.3.0",
+)
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.admin_session_secret,
+    session_cookie="whatsapp_lotes_panel",
+    max_age=60 * 60 * 12,
+    same_site="lax",
+    https_only=False,
 )
 
 app.include_router(
     webhooks_router
+)
+
+app.include_router(
+    panel_router
 )
 
 

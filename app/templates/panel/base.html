@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1"
+    >
+    <title>{{ title or "Panel WhatsApp Lotes" }}</title>
+
+    <style>
+        :root {
+            color-scheme: dark;
+            --background: #0b1120;
+            --surface: #111827;
+            --surface-light: #1f2937;
+            --border: #334155;
+            --text: #f8fafc;
+            --muted: #94a3b8;
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --danger: #dc2626;
+            --success: #16a34a;
+            --warning: #d97706;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family:
+                Inter,
+                ui-sans-serif,
+                system-ui,
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
+            background: var(--background);
+            color: var(--text);
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .topbar {
+            min-height: 64px;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .brand {
+            font-size: 18px;
+            font-weight: 800;
+        }
+
+        .navigation {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .navigation a {
+            padding: 9px 13px;
+            border-radius: 8px;
+            color: var(--muted);
+        }
+
+        .navigation a:hover,
+        .navigation a.active {
+            color: var(--text);
+            background: var(--surface-light);
+        }
+
+        .container {
+            width: min(1400px, calc(100% - 32px));
+            margin: 28px auto 60px;
+        }
+
+        .page-header {
+            margin-bottom: 24px;
+        }
+
+        .page-header h1 {
+            margin: 0 0 6px;
+            font-size: 28px;
+        }
+
+        .page-header p {
+            margin: 0;
+            color: var(--muted);
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 20px;
+            margin-bottom: 22px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns:
+                repeat(auto-fit, minmax(190px, 1fr));
+            gap: 14px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            padding: 10px 12px;
+            background: #0f172a;
+            color: var(--text);
+            outline: none;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            border-color: var(--primary);
+        }
+
+        button,
+        .button {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 40px;
+            padding: 9px 16px;
+            border: 0;
+            border-radius: 9px;
+            background: var(--primary);
+            color: white;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        button:hover,
+        .button:hover {
+            background: var(--primary-hover);
+        }
+
+        .button-secondary {
+            background: var(--surface-light);
+        }
+
+        .button-danger {
+            background: var(--danger);
+        }
+
+        .actions {
+            display: flex;
+            align-items: end;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .alert {
+            margin-bottom: 18px;
+            padding: 13px 16px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+        }
+
+        .alert-success {
+            background: rgba(22, 163, 74, .16);
+            border-color: var(--success);
+        }
+
+        .alert-error {
+            background: rgba(220, 38, 38, .16);
+            border-color: var(--danger);
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 1050px;
+        }
+
+        th,
+        td {
+            padding: 12px 10px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+
+        th {
+            color: var(--muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+
+        td {
+            font-size: 14px;
+        }
+
+        .status {
+            display: inline-flex;
+            padding: 5px 9px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .status-active {
+            background: rgba(22, 163, 74, .18);
+            color: #86efac;
+        }
+
+        .status-inactive {
+            background: rgba(220, 38, 38, .18);
+            color: #fca5a5;
+        }
+
+        .login-wrapper {
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 20px;
+        }
+
+        .login-card {
+            width: min(430px, 100%);
+        }
+
+        .login-card h1 {
+            margin-top: 0;
+        }
+
+        .login-card .field {
+            margin-bottom: 15px;
+        }
+
+        .login-card button {
+            width: 100%;
+            margin-top: 4px;
+        }
+
+        .muted {
+            color: var(--muted);
+        }
+
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 40px;
+        }
+
+        .checkbox-row input {
+            width: auto;
+        }
+
+        @media (max-width: 720px) {
+            .topbar {
+                align-items: flex-start;
+                flex-direction: column;
+                padding: 16px;
+            }
+
+            .navigation {
+                width: 100%;
+                overflow-x: auto;
+            }
+        }
+    </style>
+</head>
+
+<body>
+{% if request.session.get("panel_authenticated") %}
+<header class="topbar">
+    <div class="brand">WhatsApp Lotes</div>
+
+    <nav class="navigation">
+        <a
+            href="/panel"
+            class="{% if active_page == 'clients' %}active{% endif %}"
+        >
+            Clientes
+        </a>
+
+        <a href="/panel/logout">
+            Cerrar sesión
+        </a>
+    </nav>
+</header>
+{% endif %}
+
+{% block content %}{% endblock %}
+</body>
+</html>
