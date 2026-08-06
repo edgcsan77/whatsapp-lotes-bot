@@ -362,8 +362,29 @@ async def retry_failed_batch(
                 batch_id=refreshed.id,
             )
 
+        except EvolutionAPIError:
+            # send_existing_batch() ya registró este fallo
+            # y programó el siguiente intento.
+            attempt = get_attempts(
+                kind,
+                item_id,
+            )
+
+            logger.exception(
+                "Falló reintento de lote: "
+                "batch_id=%s attempt=%s",
+                refreshed.id,
+                attempt,
+            )
+
+            if attempt >= MAX_RETRY_ATTEMPTS:
+                result.exhausted_batch_ids.append(
+                    refreshed.id
+                )
+
+            return
+
         except (
-            EvolutionAPIError,
             BatchServiceError,
             ValueError,
         ) as error:

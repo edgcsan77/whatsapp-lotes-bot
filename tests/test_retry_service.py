@@ -88,3 +88,13 @@ def test_build_multiple_delivery_retry() -> None:
         "VALA830403RA8 SIN ID\n"
         "RAHC850707NW3 SR"
     )
+
+
+def test_retry_attempt_limit_is_five() -> None:
+    attempts = 0
+
+    for _ in range(MAX_RETRY_ATTEMPTS):
+        attempts += 1
+
+    assert attempts == 5
+    assert attempts >= MAX_RETRY_ATTEMPTS
