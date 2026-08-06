@@ -1,0 +1,267 @@
+{% extends "panel/base.html" %}
+
+{% block content %}
+<main class="container">
+    <header class="page-header">
+        <h1>Proveedores</h1>
+        <p>
+            Administra los grupos que recibirán los lotes
+            y devolverán los resultados.
+        </p>
+    </header>
+
+    {% if message %}
+    <div class="alert alert-success">
+        {{ message }}
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="alert alert-error">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <section class="card">
+        <h2>Agregar proveedor</h2>
+
+        <form
+            method="post"
+            action="/panel/providers/create"
+        >
+            <input
+                type="hidden"
+                name="csrf_token"
+                value="{{ csrf_token }}"
+            >
+
+            <div class="grid">
+                <div>
+                    <label>Nombre</label>
+                    <input
+                        name="name"
+                        type="text"
+                        placeholder="Proveedor principal"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label>JID del grupo proveedor</label>
+                    <input
+                        name="whatsapp_jid"
+                        type="text"
+                        placeholder="120363...@g.us"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label>Instancia Evolution</label>
+                    <input
+                        name="evolution_instance"
+                        type="text"
+                        value="lotesbot"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label>Encabezado de respuesta</label>
+                    <input
+                        name="response_header"
+                        type="text"
+                        placeholder="Opcional: ISAI, ROBERTO, etc."
+                    >
+                </div>
+
+                <div>
+                    <label>Prioridad</label>
+                    <input
+                        name="priority"
+                        type="number"
+                        min="1"
+                        max="999"
+                        value="1"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label>Tiempo de espera en minutos</label>
+                    <input
+                        name="timeout_minutes"
+                        type="number"
+                        min="1"
+                        max="1440"
+                        value="30"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label>Notas</label>
+                    <input
+                        name="notes"
+                        type="text"
+                        placeholder="Notas internas opcionales"
+                    >
+                </div>
+
+                <div class="checkbox-row">
+                    <input
+                        id="provider_active"
+                        name="active"
+                        type="checkbox"
+                        checked
+                    >
+                    <label for="provider_active">
+                        Proveedor activo
+                    </label>
+                </div>
+
+                <div class="actions">
+                    <button type="submit">
+                        Agregar proveedor
+                    </button>
+                </div>
+            </div>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>Proveedores registrados</h2>
+
+        {% if not providers %}
+        <p class="muted">
+            Todavía no existen proveedores registrados.
+        </p>
+        {% else %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Proveedor</th>
+                        <th>JID</th>
+                        <th>Instancia</th>
+                        <th>Encabezado</th>
+                        <th>Prioridad</th>
+                        <th>Espera</th>
+                        <th>Estado</th>
+                        <th>Guardar</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                {% for provider in providers %}
+                    <tr>
+                        <form
+                            method="post"
+                            action="/panel/providers/{{ provider.id }}/update"
+                        >
+                            <input
+                                type="hidden"
+                                name="csrf_token"
+                                value="{{ csrf_token }}"
+                            >
+
+                            <td>
+                                <input
+                                    name="name"
+                                    value="{{ provider.name }}"
+                                    required
+                                >
+
+                                <input
+                                    name="notes"
+                                    value="{{ provider.notes or '' }}"
+                                    placeholder="Notas"
+                                >
+                            </td>
+
+                            <td>
+                                <input
+                                    name="whatsapp_jid"
+                                    value="{{ provider.whatsapp_jid }}"
+                                    required
+                                >
+                            </td>
+
+                            <td>
+                                <input
+                                    name="evolution_instance"
+                                    value="{{ provider.evolution_instance }}"
+                                    required
+                                >
+                            </td>
+
+                            <td>
+                                <input
+                                    name="response_header"
+                                    value="{{ provider.response_header or '' }}"
+                                >
+                            </td>
+
+                            <td>
+                                <input
+                                    name="priority"
+                                    type="number"
+                                    min="1"
+                                    max="999"
+                                    value="{{ provider.priority }}"
+                                    required
+                                >
+                            </td>
+
+                            <td>
+                                <input
+                                    name="timeout_minutes"
+                                    type="number"
+                                    min="1"
+                                    max="1440"
+                                    value="{{ provider.timeout_minutes }}"
+                                    required
+                                >
+                            </td>
+
+                            <td>
+                                {% if provider.active %}
+                                <span class="status status-active">
+                                    Activo
+                                </span>
+                                {% else %}
+                                <span class="status status-inactive">
+                                    Inactivo
+                                </span>
+                                {% endif %}
+
+                                <div class="checkbox-row">
+                                    <input
+                                        id="provider_active_{{ provider.id }}"
+                                        name="active"
+                                        type="checkbox"
+                                        {% if provider.active %}checked{% endif %}
+                                    >
+                                    <label
+                                        for="provider_active_{{ provider.id }}"
+                                    >
+                                        Habilitado
+                                    </label>
+                                </div>
+                            </td>
+
+                            <td>
+                                <button type="submit">
+                                    Guardar
+                                </button>
+                            </td>
+                        </form>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </section>
+</main>
+{% endblock %}

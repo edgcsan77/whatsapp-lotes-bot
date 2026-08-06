@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.client import Client
+from app.models.provider import Provider
 
 
 load_dotenv()
@@ -562,4 +563,292 @@ def update_client(
 
     return redirect_clients(
         message="Cliente actualizado correctamente."
+    )
+
+
+def redirect_providers(
+    *,
+    message: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
+    query_parts: list[str] = []
+
+    if message:
+        query_parts.append(
+            f"message={quote(message)}"
+        )
+
+    if error:
+        query_parts.append(
+            f"error={quote(error)}"
+        )
+
+    url = "/panel/providers"
+
+    if query_parts:
+        url += "?" + "&".join(query_parts)
+
+    return RedirectResponse(
+        url=url,
+        status_code=303,
+    )
+
+
+def validate_provider_jid(
+    whatsapp_jid: str,
+) -> str:
+    jid = str(whatsapp_jid or "").strip()
+
+    if not jid:
+        raise ValueError(
+            "El JID del proveedor es obligatorio."
+        )
+
+    if not jid.endswith("@g.us"):
+        raise ValueError(
+            "El JID del proveedor debe terminar en @g.us."
+        )
+
+    return jid
+
+
+@router.get(
+    "/providers",
+    response_class=HTMLResponse,
+)
+def providers_page(
+    request: Request,
+    message: str | None = None,
+    error: str | None = None,
+    db: Session = Depends(get_db),
+):
+    redirect = require_authenticated(
+        request
+    )
+
+    if redirect:
+        return redirect
+
+    providers = list(
+        db.scalars(
+            select(Provider).order_by(
+                Provider.active.desc(),
+                Provider.priority.asc(),
+                Provider.name.asc(),
+            )
+        )
+    )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="panel/providers.html",
+        context={
+            "request": request,
+            "title": "Proveedores",
+            "active_page": "providers",
+            "providers": providers,
+            "csrf_token":
+                ensure_csrf_token(request),
+            "message": message,
+            "error": error,
+        },
+    )
+
+
+@router.post("/providers/create")
+def create_provider(
+    request: Request,
+    name: str = Form(...),
+    whatsapp_jid: str = Form(...),
+    evolution_instance: str = Form(...),
+    response_header: str = Form(""),
+    priority: int = Form(...),
+    timeout_minutes: int = Form(...),
+    notes: str = Form(""),
+    csrf_token: str = Form(...),
+    active: str | None = Form(None),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    redirect = require_authenticated(
+        request
+    )
+
+    if redirect:
+        return redirect
+
+    if not validate_csrf(
+        request,
+        csrf_token,
+    ):
+        return redirect_providers(
+            error="Token de seguridad inválido."
+        )
+
+    if not name.strip():
+        return redirect_providers(
+            error="El nombre es obligatorio."
+        )
+
+    try:
+        jid = validate_provider_jid(
+            whatsapp_jid
+        )
+    except ValueError as validation_error:
+        return redirect_providers(
+            error=str(validation_error)
+        )
+
+    instance_name = evolution_instance.strip()
+
+    if not instance_name:
+        return redirect_providers(
+            error="La instancia de Evolution es obligatoria."
+        )
+
+    if not 1 <= priority <= 999:
+        return redirect_providers(
+            error="La prioridad debe estar entre 1 y 999."
+        )
+
+    if not 1 <= timeout_minutes <= 1440:
+        return redirect_providers(
+            error=(
+                "El tiempo de espera debe estar "
+                "entre 1 y 1440 minutos."
+            )
+        )
+
+    provider = Provider(
+        name=name.strip(),
+        whatsapp_jid=jid,
+        evolution_instance=instance_name,
+        response_header=(
+            response_header.strip() or None
+        ),
+        priority=priority,
+        timeout_minutes=timeout_minutes,
+        notes=notes.strip() or None,
+        active=checkbox_value(active),
+    )
+
+    db.add(provider)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+
+        return redirect_providers(
+            error=(
+                "Ese JID ya está registrado "
+                "como proveedor."
+            )
+        )
+
+    return redirect_providers(
+        message="Proveedor agregado correctamente."
+    )
+
+
+@router.post(
+    "/providers/{provider_id}/update"
+)
+def update_provider(
+    provider_id: int,
+    request: Request,
+    name: str = Form(...),
+    whatsapp_jid: str = Form(...),
+    evolution_instance: str = Form(...),
+    response_header: str = Form(""),
+    priority: int = Form(...),
+    timeout_minutes: int = Form(...),
+    notes: str = Form(""),
+    csrf_token: str = Form(...),
+    active: str | None = Form(None),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    redirect = require_authenticated(
+        request
+    )
+
+    if redirect:
+        return redirect
+
+    if not validate_csrf(
+        request,
+        csrf_token,
+    ):
+        return redirect_providers(
+            error="Token de seguridad inválido."
+        )
+
+    provider = db.get(
+        Provider,
+        provider_id,
+    )
+
+    if provider is None:
+        return redirect_providers(
+            error="Proveedor no encontrado."
+        )
+
+    try:
+        jid = validate_provider_jid(
+            whatsapp_jid
+        )
+    except ValueError as validation_error:
+        return redirect_providers(
+            error=str(validation_error)
+        )
+
+    instance_name = evolution_instance.strip()
+
+    if not name.strip():
+        return redirect_providers(
+            error="El nombre es obligatorio."
+        )
+
+    if not instance_name:
+        return redirect_providers(
+            error="La instancia de Evolution es obligatoria."
+        )
+
+    if not 1 <= priority <= 999:
+        return redirect_providers(
+            error="La prioridad debe estar entre 1 y 999."
+        )
+
+    if not 1 <= timeout_minutes <= 1440:
+        return redirect_providers(
+            error=(
+                "El tiempo de espera debe estar "
+                "entre 1 y 1440 minutos."
+            )
+        )
+
+    provider.name = name.strip()
+    provider.whatsapp_jid = jid
+    provider.evolution_instance = instance_name
+    provider.response_header = (
+        response_header.strip() or None
+    )
+    provider.priority = priority
+    provider.timeout_minutes = timeout_minutes
+    provider.notes = notes.strip() or None
+    provider.active = checkbox_value(active)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+
+        return redirect_providers(
+            error=(
+                "No se pudo guardar. "
+                "El JID ya pertenece a otro proveedor."
+            )
+        )
+
+    return redirect_providers(
+        message="Proveedor actualizado correctamente."
     )
