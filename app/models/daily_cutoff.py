@@ -58,6 +58,12 @@ class DailyCutoff(Base):
         default=0,
     )
 
+    idcif_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
     delivered_count: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

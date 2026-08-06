@@ -416,6 +416,9 @@ def create_daily_cutoff(
         total_requests=(
             totals.total_requests
         ),
+        idcif_count=(
+            totals.idcif_count
+        ),
         delivered_count=(
             totals.delivered_count
         ),
