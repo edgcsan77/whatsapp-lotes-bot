@@ -23,6 +23,10 @@ from app.services.evolution_webhook import (
     parse_evolution_payload,
     secrets_match,
 )
+from app.services.provider_response_service import (
+    get_active_provider_by_jid,
+    process_provider_message,
+)
 from app.services.request_service import (
     ClientInactiveError,
     ClientNotFoundError,
@@ -65,9 +69,7 @@ async def evolution_webhook(
             detail="INVALID_JSON",
         ) from error
 
-    parsed = parse_evolution_payload(
-        payload
-    )
+    parsed = parse_evolution_payload(payload)
 
     if parsed is None:
         return {
@@ -99,6 +101,51 @@ async def evolution_webhook(
             "reason": "MESSAGE_WITHOUT_TEXT",
         }
 
+    # Primero revisamos si el mensaje viene
+    # de un grupo proveedor.
+    provider = get_active_provider_by_jid(
+        db,
+        parsed.source_jid,
+    )
+
+    if provider is not None:
+        provider_result = (
+            await process_provider_message(
+                db,
+                provider=provider,
+                provider_message_id=
+                    parsed.message_id,
+                text=parsed.text,
+            )
+        )
+
+        return {
+            "ok": True,
+            "ignored": False,
+            "message_type":
+                "PROVIDER_RESPONSE",
+            "provider_id":
+                provider_result.provider_id,
+            "provider_name":
+                provider_result.provider_name,
+            "parsed_count":
+                provider_result.parsed_count,
+            "matched_request_ids":
+                provider_result.matched_request_ids,
+            "unmatched_rfcs":
+                provider_result.unmatched_rfcs,
+            "already_processed_rfcs":
+                provider_result\
+                    .already_processed_rfcs,
+            "delivered_request_ids":
+                provider_result\
+                    .delivered_request_ids,
+            "delivery_failed_request_ids":
+                provider_result\
+                    .delivery_failed_request_ids,
+        }
+
+    # Si no es proveedor, se procesa como cliente.
     try:
         result = register_client_message(
             db,
@@ -131,8 +178,6 @@ async def evolution_webhook(
     acknowledgement_error = None
     acknowledgement_message_id = None
 
-    # Solo confirma solicitudes recién creadas.
-    # Un webhook duplicado no manda otra confirmación.
     if result.created_identifiers:
         acknowledgement_text = (
             build_request_acknowledgement(
@@ -143,7 +188,8 @@ async def evolution_webhook(
         if acknowledgement_text:
             try:
                 send_result = await send_text_message(
-                    destination_jid=parsed.source_jid,
+                    destination_jid=
+                        parsed.source_jid,
                     text=acknowledgement_text,
                     instance=parsed.instance,
                 )
@@ -164,8 +210,7 @@ async def evolution_webhook(
 
                 logger.exception(
                     "No se pudo enviar confirmación "
-                    "de solicitudes: message_id=%s "
-                    "source_jid=%s",
+                    "message_id=%s source_jid=%s",
                     parsed.message_id,
                     parsed.source_jid,
                 )
@@ -173,6 +218,7 @@ async def evolution_webhook(
     return {
         "ok": True,
         "ignored": False,
+        "message_type": "CLIENT_REQUEST",
         "client_id": result.client_id,
         "client_name": result.client_name,
         "parsed_count": result.parsed_count,
