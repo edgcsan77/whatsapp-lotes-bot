@@ -37,6 +37,7 @@ class CutoffPeriod:
 @dataclass(frozen=True)
 class CutoffTotals:
     total_requests: int
+    idcif_count: int
     delivered_count: int
     pending_count: int
     failed_count: int
@@ -187,6 +188,7 @@ def calculate_cutoff_totals(
     requests: list[Request],
 ) -> CutoffTotals:
     delivered_count = 0
+    idcif_count = 0
     failed_count = 0
     pending_count = 0
     rfc_count = 0
@@ -200,6 +202,15 @@ def calculate_cutoff_totals(
 
         if status in DELIVERED_REQUEST_STATUSES:
             delivered_count += 1
+
+            if (
+                str(request.result_code or "")
+                .strip()
+                .upper()
+                == "OK"
+                and str(request.idcif or "").strip()
+            ):
+                idcif_count += 1
         elif status in FAILED_REQUEST_STATUSES:
             failed_count += 1
         else:
@@ -221,6 +232,7 @@ def calculate_cutoff_totals(
 
     return CutoffTotals(
         total_requests=len(requests),
+        idcif_count=idcif_count,
         delivered_count=delivered_count,
         pending_count=pending_count,
         failed_count=failed_count,
@@ -360,20 +372,37 @@ def render_daily_cutoff_message(
     period: CutoffPeriod,
     totals: CutoffTotals,
 ) -> str:
+    months = {
+        1: "ENERO",
+        2: "FEBRERO",
+        3: "MARZO",
+        4: "ABRIL",
+        5: "MAYO",
+        6: "JUNIO",
+        7: "JULIO",
+        8: "AGOSTO",
+        9: "SEPTIEMBRE",
+        10: "OCTUBRE",
+        11: "NOVIEMBRE",
+        12: "DICIEMBRE",
+    }
+
+    cutoff_date = period.end_local
+
+    date_text = (
+        f"{cutoff_date.day} DE "
+        f"{months[cutoff_date.month]} DEL "
+        f"{cutoff_date.year}"
+    )
+
     return (
-        "📊 CORTE DIARIO\n\n"
-        f"Cliente: {client.name}\n"
-        "Periodo: "
-        f"{format_local_datetime(period.start_local)}"
-        " – "
-        f"{format_local_datetime(period.end_local)}\n\n"
-        f"Solicitudes: {totals.total_requests}\n"
-        f"Entregadas: {totals.delivered_count}\n"
-        f"Pendientes: {totals.pending_count}\n"
-        f"Fallidas: {totals.failed_count}\n\n"
-        f"RFC directos: {totals.rfc_count}\n"
-        f"CURP convertidas: {totals.curp_count}\n\n"
-        f"Total: ${totals.total_amount:,.2f}"
+        f"CORTE - {date_text}         "
+        "🧾 Resumen del día\n\n\n"
+        f"📄 *Total de IDCIF: "
+        f"{totals.idcif_count}*\n\n\n"
+        "Si algún rastreo se envió doble, "
+        "favor de aclarar para que podamos "
+        "ajustar el corte."
     )
 
 

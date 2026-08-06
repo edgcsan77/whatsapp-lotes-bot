@@ -317,6 +317,7 @@ def test_render_daily_cutoff_message(
 
     totals = CutoffTotals(
         total_requests=5,
+        idcif_count=1,
         delivered_count=4,
         pending_count=1,
         failed_count=0,
@@ -331,11 +332,13 @@ def test_render_daily_cutoff_message(
         totals=totals,
     )
 
-    assert "📊 CORTE DIARIO" in message
-    assert "Cliente: Cliente corte" in message
-    assert "Solicitudes: 5" in message
-    assert "Entregadas: 4" in message
-    assert "Pendientes: 1" in message
-    assert "RFC directos: 3" in message
-    assert "CURP convertidas: 2" in message
-    assert "Total: $125.00" in message
+    assert (
+        "CORTE - 6 DE AGOSTO DEL 2026"
+        in message
+    )
+    assert "🧾 Resumen del día" in message
+    assert "📄 *Total de IDCIF: 1*" in message
+    assert (
+        "Si algún rastreo se envió doble"
+        in message
+    )
