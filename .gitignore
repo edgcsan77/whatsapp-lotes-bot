@@ -1,0 +1,55 @@
+# Variables y secretos
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Datos generados
+data/*
+!data/.gitkeep
+logs/
+*.log
+
+# Bases y respaldos
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+*.dump
+backups/
+
+# Archivos temporales
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+
+# IDE
+.vscode/
+.idea/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Selenium
+chromedriver.log
+
+# PDFs y reportes generados
+*.pdf
+*.xlsx
+*.csv
