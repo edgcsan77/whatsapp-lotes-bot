@@ -109,12 +109,21 @@
 
                 <div>
                     <label>Zona horaria</label>
-                    <input
+
+                    <select
                         name="timezone"
-                        type="text"
-                        value="America/Monterrey"
                         required
                     >
+                        {% for timezone in available_timezones %}
+                        <option
+                            value="{{ timezone.value }}"
+                            {% if timezone.value == "America/Matamoros" %}selected{% endif %}
+                        >
+                            {{ timezone.label }}
+                            — {{ timezone.value }}
+                        </option>
+                        {% endfor %}
+                    </select>
                 </div>
 
                 <div class="checkbox-row">
@@ -258,11 +267,40 @@
                                     required
                                 >
 
-                                <input
+                                <select
                                     name="timezone"
-                                    value="{{ client.timezone }}"
                                     required
                                 >
+                                    {% for timezone in available_timezones %}
+                                    <option
+                                        value="{{ timezone.value }}"
+                                        {% if timezone.value == client.timezone %}selected{% endif %}
+                                    >
+                                        {{ timezone.label }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+
+                                {% if next_cutoffs.get(client.id) %}
+                                <div class="muted">
+                                    Próximo corte:
+                                    {{
+                                        next_cutoffs[
+                                            client.id
+                                        ].strftime(
+                                            "%d/%m/%Y %H:%M"
+                                        )
+                                    }}
+                                </div>
+                                {% elif not client.daily_cutoff_enabled %}
+                                <div class="muted">
+                                    Corte deshabilitado
+                                </div>
+                                {% else %}
+                                <div class="muted">
+                                    Configuración inválida
+                                </div>
+                                {% endif %}
                             </td>
 
                             <td>

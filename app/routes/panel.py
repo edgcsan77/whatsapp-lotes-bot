@@ -2,8 +2,10 @@ import hashlib
 import hmac
 import os
 import secrets
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, Form, Request
@@ -29,6 +31,30 @@ router = APIRouter(
 templates = Jinja2Templates(
     directory="app/templates"
 )
+
+
+AVAILABLE_TIMEZONES = [
+    {
+        "value": "America/Matamoros",
+        "label": "Reynosa / Matamoros",
+    },
+    {
+        "value": "America/Monterrey",
+        "label": "Monterrey",
+    },
+    {
+        "value": "America/Mexico_City",
+        "label": "Ciudad de México",
+    },
+    {
+        "value": "America/Cancun",
+        "label": "Cancún / Quintana Roo",
+    },
+    {
+        "value": "America/Tijuana",
+        "label": "Tijuana",
+    },
+]
 
 
 def get_admin_user() -> str:
@@ -127,6 +153,99 @@ def require_authenticated(
         url="/panel/login",
         status_code=303,
     )
+
+
+def validate_cutoff_time(
+    value: str,
+) -> str:
+    raw = str(value or "").strip()
+
+    try:
+        parsed = datetime.strptime(
+            raw,
+            "%H:%M",
+        )
+    except ValueError as error:
+        raise ValueError(
+            "La hora de corte debe tener "
+            "formato HH:MM."
+        ) from error
+
+    return parsed.strftime("%H:%M")
+
+
+def validate_timezone(
+    value: str,
+) -> str:
+    raw = str(value or "").strip()
+
+    allowed_values = {
+        item["value"]
+        for item in AVAILABLE_TIMEZONES
+    }
+
+    if raw not in allowed_values:
+        raise ValueError(
+            "Zona horaria no permitida."
+        )
+
+    try:
+        ZoneInfo(raw)
+    except ZoneInfoNotFoundError as error:
+        raise ValueError(
+            "Zona horaria inválida."
+        ) from error
+
+    return raw
+
+
+def calculate_next_cutoff_local(
+    client: Client,
+    *,
+    now_utc: datetime | None = None,
+) -> datetime | None:
+    if (
+        not client.active
+        or not client.daily_cutoff_enabled
+    ):
+        return None
+
+    try:
+        timezone = ZoneInfo(
+            client.timezone
+        )
+
+        cutoff_time = datetime.strptime(
+            client.daily_cutoff_time,
+            "%H:%M",
+        ).time()
+
+    except (
+        ValueError,
+        ZoneInfoNotFoundError,
+    ):
+        return None
+
+    current_utc = (
+        now_utc
+        if now_utc is not None
+        else datetime.now(UTC)
+    )
+
+    local_now = current_utc.astimezone(
+        timezone
+    )
+
+    next_cutoff = datetime.combine(
+        local_now.date(),
+        cutoff_time,
+        tzinfo=timezone,
+    )
+
+    if next_cutoff <= local_now:
+        next_cutoff += timedelta(days=1)
+
+    return next_cutoff
 
 
 def checkbox_value(
@@ -337,6 +456,13 @@ def clients_page(
         for client in clients
     }
 
+    next_cutoffs = {
+        client.id: calculate_next_cutoff_local(
+            client
+        )
+        for client in clients
+    }
+
     return templates.TemplateResponse(
         request=request,
         name="panel/clients.html",
@@ -347,6 +473,9 @@ def clients_page(
             "clients": clients,
             "daily_cutoffs": daily_cutoffs,
             "client_names": client_names,
+            "next_cutoffs": next_cutoffs,
+            "available_timezones":
+                AVAILABLE_TIMEZONES,
             "csrf_token":
                 ensure_csrf_token(request),
             "message": message,
@@ -432,6 +561,19 @@ def create_client(
         price = parse_price(
             price_per_request
         )
+
+        validated_cutoff_time = (
+            validate_cutoff_time(
+                daily_cutoff_time
+            )
+        )
+
+        validated_timezone = (
+            validate_timezone(
+                timezone
+            )
+        )
+
     except ValueError as error:
         return redirect_clients(
             error=str(error)
@@ -452,8 +594,8 @@ def create_client(
             daily_cutoff_enabled
         ),
         daily_cutoff_time=
-            daily_cutoff_time.strip(),
-        timezone=timezone.strip(),
+            validated_cutoff_time,
+        timezone=validated_timezone,
         active=checkbox_value(active),
     )
 
@@ -527,6 +669,19 @@ def update_client(
         price = parse_price(
             price_per_request
         )
+
+        validated_cutoff_time = (
+            validate_cutoff_time(
+                daily_cutoff_time
+            )
+        )
+
+        validated_timezone = (
+            validate_timezone(
+                timezone
+            )
+        )
+
     except ValueError as error:
         return redirect_clients(
             error=str(error)
@@ -563,9 +718,11 @@ def update_client(
         )
     )
     client.daily_cutoff_time = (
-        daily_cutoff_time.strip()
+        validated_cutoff_time
     )
-    client.timezone = timezone.strip()
+    client.timezone = (
+        validated_timezone
+    )
     client.active = checkbox_value(active)
 
     try:
