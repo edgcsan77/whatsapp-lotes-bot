@@ -317,6 +317,51 @@
             overflow-wrap: anywhere;
         }
 
+        .section-heading {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 18px;
+        }
+
+        .section-heading h2 {
+            margin: 0 0 5px;
+        }
+
+        .section-heading p {
+            margin: 0;
+        }
+
+        .filter-grid {
+            display: grid;
+            grid-template-columns:
+                repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+            align-items: end;
+        }
+
+        .filter-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .filter-actions button {
+            flex: 1;
+            min-width: 120px;
+        }
+
+        .filter-note {
+            margin: 14px 0 0;
+            font-size: 12px;
+        }
+
+        input[type="search"] {
+            min-width: 190px;
+        }
+
         @media (max-width: 720px) {
             .topbar {
                 align-items: flex-start;

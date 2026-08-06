@@ -10,6 +10,167 @@
         </p>
     </header>
 
+    <section class="card">
+        <div class="section-heading">
+            <div>
+                <h2>Filtros</h2>
+                <p class="muted">
+                    Filtra las solicitudes sin modificar
+                    la información registrada.
+                </p>
+            </div>
+
+            <a
+                class="button button-secondary"
+                href="/panel/operations"
+            >
+                Limpiar filtros
+            </a>
+        </div>
+
+        <form
+            method="get"
+            action="/panel/operations"
+        >
+            <div class="filter-grid">
+                <div>
+                    <label for="filter_client">
+                        Cliente
+                    </label>
+
+                    <select
+                        id="filter_client"
+                        name="client_id"
+                    >
+                        <option value="">
+                            Todos los clientes
+                        </option>
+
+                        {% for client in clients %}
+                        <option
+                            value="{{ client.id }}"
+                            {% if active_filters.client_id == client.id %}selected{% endif %}
+                        >
+                            {{ client.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label for="filter_status">
+                        Estado
+                    </label>
+
+                    <select
+                        id="filter_status"
+                        name="status"
+                    >
+                        <option value="">
+                            Todos los estados
+                        </option>
+
+                        {% for request_status in status_options %}
+                        <option
+                            value="{{ request_status }}"
+                            {% if active_filters.status == request_status %}selected{% endif %}
+                        >
+                            {{ request_status }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label for="filter_input_type">
+                        Tipo de entrada
+                    </label>
+
+                    <select
+                        id="filter_input_type"
+                        name="input_type"
+                    >
+                        <option value="">
+                            RFC y CURP
+                        </option>
+
+                        <option
+                            value="RFC"
+                            {% if active_filters.input_type == "RFC" %}selected{% endif %}
+                        >
+                            RFC
+                        </option>
+
+                        <option
+                            value="CURP"
+                            {% if active_filters.input_type == "CURP" %}selected{% endif %}
+                        >
+                            CURP
+                        </option>
+                    </select>
+                </div>
+
+                <div>
+                    <label for="filter_query">
+                        RFC, CURP, IDCIF o nombre
+                    </label>
+
+                    <input
+                        id="filter_query"
+                        name="query"
+                        type="search"
+                        value="{{ active_filters.query }}"
+                        placeholder="Buscar..."
+                    >
+                </div>
+
+                <div>
+                    <label for="filter_date_from">
+                        Desde
+                    </label>
+
+                    <input
+                        id="filter_date_from"
+                        name="date_from"
+                        type="date"
+                        value="{{ active_filters.date_from }}"
+                    >
+                </div>
+
+                <div>
+                    <label for="filter_date_to">
+                        Hasta
+                    </label>
+
+                    <input
+                        id="filter_date_to"
+                        name="date_to"
+                        type="date"
+                        value="{{ active_filters.date_to }}"
+                    >
+                </div>
+
+                <div class="filter-actions">
+                    <button type="submit">
+                        Aplicar filtros
+                    </button>
+
+                    <button
+                        type="submit"
+                        class="button-secondary"
+                    >
+                        Actualizar
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        <p class="muted filter-note">
+            Las fechas se interpretan con la zona
+            horaria de Reynosa / Matamoros.
+        </p>
+    </section>
+
     <section class="stats-grid">
         <div class="stat-card">
             <div class="stat-label">
@@ -52,7 +213,8 @@
         <h2>Solicitudes recientes</h2>
 
         <p class="muted">
-            Últimas 100 solicitudes recibidas.
+            Se muestran hasta 100 solicitudes
+            que coinciden con los filtros actuales.
         </p>
 
         {% if not recent_requests %}

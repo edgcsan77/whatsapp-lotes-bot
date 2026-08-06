@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -751,6 +751,12 @@ def update_client(
 )
 def operations_page(
     request: Request,
+    client_id: int | None = None,
+    status: str | None = None,
+    input_type: str | None = None,
+    query: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     db: Session = Depends(get_db),
 ):
     redirect = require_authenticated(
@@ -760,37 +766,21 @@ def operations_page(
     if redirect:
         return redirect
 
-    recent_requests = list(
-        db.scalars(
-            select(RequestModel)
-            .order_by(
-                RequestModel.received_at.desc(),
-                RequestModel.id.desc(),
-            )
-            .limit(100)
-        )
-    )
-
-    recent_batches = list(
-        db.scalars(
-            select(Batch)
-            .order_by(
-                Batch.created_at.desc(),
-                Batch.id.desc(),
-            )
-            .limit(50)
-        )
-    )
-
     clients = list(
         db.scalars(
-            select(Client)
+            select(Client).order_by(
+                Client.active.desc(),
+                Client.name.asc(),
+            )
         )
     )
 
     providers = list(
         db.scalars(
-            select(Provider)
+            select(Provider).order_by(
+                Provider.active.desc(),
+                Provider.name.asc(),
+            )
         )
     )
 
@@ -803,6 +793,169 @@ def operations_page(
         provider.id: provider.name
         for provider in providers
     }
+
+    request_statement = select(
+        RequestModel
+    )
+
+    normalized_status = str(
+        status or ""
+    ).strip().upper()
+
+    normalized_input_type = str(
+        input_type or ""
+    ).strip().upper()
+
+    normalized_query = str(
+        query or ""
+    ).strip().upper()
+
+    if client_id is not None:
+        request_statement = (
+            request_statement.where(
+                RequestModel.client_id
+                == client_id
+            )
+        )
+
+    if normalized_status:
+        request_statement = (
+            request_statement.where(
+                RequestModel.status
+                == normalized_status
+            )
+        )
+
+    if normalized_input_type in {
+        "RFC",
+        "CURP",
+    }:
+        request_statement = (
+            request_statement.where(
+                RequestModel.input_type
+                == normalized_input_type
+            )
+        )
+
+    if normalized_query:
+        search_pattern = (
+            f"%{normalized_query}%"
+        )
+
+        request_statement = (
+            request_statement.where(
+                or_(
+                    RequestModel.rfc.ilike(
+                        search_pattern
+                    ),
+                    RequestModel.original_curp.ilike(
+                        search_pattern
+                    ),
+                    RequestModel.identifier_key.ilike(
+                        search_pattern
+                    ),
+                    RequestModel.idcif.ilike(
+                        search_pattern
+                    ),
+                    RequestModel.detected_name.ilike(
+                        search_pattern
+                    ),
+                )
+            )
+        )
+
+    filter_timezone = ZoneInfo(
+        "America/Matamoros"
+    )
+
+    normalized_date_from = str(
+        date_from or ""
+    ).strip()
+
+    normalized_date_to = str(
+        date_to or ""
+    ).strip()
+
+    try:
+        if normalized_date_from:
+            start_local = datetime.strptime(
+                normalized_date_from,
+                "%Y-%m-%d",
+            ).replace(
+                tzinfo=filter_timezone
+            )
+
+            request_statement = (
+                request_statement.where(
+                    RequestModel.received_at
+                    >= start_local.astimezone(
+                        UTC
+                    )
+                )
+            )
+
+        if normalized_date_to:
+            end_local = (
+                datetime.strptime(
+                    normalized_date_to,
+                    "%Y-%m-%d",
+                ).replace(
+                    tzinfo=filter_timezone
+                )
+                + timedelta(days=1)
+            )
+
+            request_statement = (
+                request_statement.where(
+                    RequestModel.received_at
+                    < end_local.astimezone(
+                        UTC
+                    )
+                )
+            )
+
+    except ValueError:
+        normalized_date_from = ""
+        normalized_date_to = ""
+
+    recent_requests = list(
+        db.scalars(
+            request_statement
+            .order_by(
+                RequestModel.received_at.desc(),
+                RequestModel.id.desc(),
+            )
+            .limit(100)
+        )
+    )
+
+    batch_statement = select(Batch)
+
+    if client_id is not None:
+        batch_statement = (
+            batch_statement.where(
+                Batch.client_id == client_id
+            )
+        )
+
+    recent_batches = list(
+        db.scalars(
+            batch_statement
+            .order_by(
+                Batch.created_at.desc(),
+                Batch.id.desc(),
+            )
+            .limit(50)
+        )
+    )
+
+    status_options = list(
+        db.scalars(
+            select(RequestModel.status)
+            .distinct()
+            .order_by(RequestModel.status)
+        )
+    )
 
     request_counts = {
         "total": len(recent_requests),
@@ -827,6 +980,15 @@ def operations_page(
         ),
     }
 
+    active_filters = {
+        "client_id": client_id,
+        "status": normalized_status,
+        "input_type": normalized_input_type,
+        "query": normalized_query,
+        "date_from": normalized_date_from,
+        "date_to": normalized_date_to,
+    }
+
     return templates.TemplateResponse(
         request=request,
         name="panel/operations.html",
@@ -836,11 +998,15 @@ def operations_page(
             "active_page": "operations",
             "recent_requests": recent_requests,
             "recent_batches": recent_batches,
+            "clients": clients,
+            "status_options": status_options,
             "client_names": client_names,
             "provider_names": provider_names,
             "request_counts": request_counts,
+            "active_filters": active_filters,
         },
     )
+
 
 def redirect_providers(
     *,
