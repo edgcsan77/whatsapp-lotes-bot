@@ -17,3 +17,4 @@ itsdangerous
 orjson
 structlog
 pytest
+selenium>=4.25,<5
