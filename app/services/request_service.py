@@ -37,6 +37,7 @@ class RegistrationResult:
     client_name: str
     parsed_count: int = 0
     created_ids: list[int] = field(default_factory=list)
+    created_identifiers: list[str] = field(default_factory=list)
     duplicate_identifiers: list[str] = field(default_factory=list)
     ignored_curps: list[str] = field(default_factory=list)
     no_identifiers_found: bool = False
@@ -200,6 +201,9 @@ def register_client_message(
             continue
 
         result.created_ids.append(request.id)
+        result.created_identifiers.append(
+            identifier_key
+        )
 
     db.commit()
 

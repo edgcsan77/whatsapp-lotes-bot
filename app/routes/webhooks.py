@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from fastapi import (
@@ -11,6 +12,13 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
+from app.integrations.evolution_client import (
+    EvolutionAPIError,
+    send_text_message,
+)
+from app.services.acknowledgement_service import (
+    build_request_acknowledgement,
+)
 from app.services.evolution_webhook import (
     parse_evolution_payload,
     secrets_match,
@@ -22,6 +30,8 @@ from app.services.request_service import (
     register_client_message,
 )
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/webhooks",
@@ -63,7 +73,8 @@ async def evolution_webhook(
         return {
             "ok": True,
             "ignored": True,
-            "reason": "UNSUPPORTED_OR_INCOMPLETE_EVENT",
+            "reason":
+                "UNSUPPORTED_OR_INCOMPLETE_EVENT",
         }
 
     if parsed.instance != settings.evolution_instance:
@@ -116,6 +127,49 @@ async def evolution_webhook(
             "source_jid": parsed.source_jid,
         }
 
+    acknowledgement_sent = False
+    acknowledgement_error = None
+    acknowledgement_message_id = None
+
+    # Solo confirma solicitudes recién creadas.
+    # Un webhook duplicado no manda otra confirmación.
+    if result.created_identifiers:
+        acknowledgement_text = (
+            build_request_acknowledgement(
+                result.created_identifiers
+            )
+        )
+
+        if acknowledgement_text:
+            try:
+                send_result = await send_text_message(
+                    destination_jid=parsed.source_jid,
+                    text=acknowledgement_text,
+                    instance=parsed.instance,
+                )
+
+                acknowledgement_sent = (
+                    send_result.ok
+                )
+
+                acknowledgement_message_id = (
+                    send_result.message_id
+                )
+
+            except (
+                EvolutionAPIError,
+                ValueError,
+            ) as error:
+                acknowledgement_error = str(error)
+
+                logger.exception(
+                    "No se pudo enviar confirmación "
+                    "de solicitudes: message_id=%s "
+                    "source_jid=%s",
+                    parsed.message_id,
+                    parsed.source_jid,
+                )
+
     return {
         "ok": True,
         "ignored": False,
@@ -124,10 +178,18 @@ async def evolution_webhook(
         "parsed_count": result.parsed_count,
         "created_count": result.created_count,
         "created_ids": result.created_ids,
+        "created_identifiers":
+            result.created_identifiers,
         "duplicate_count": result.duplicate_count,
         "duplicate_identifiers":
             result.duplicate_identifiers,
         "ignored_curps": result.ignored_curps,
         "no_identifiers_found":
             result.no_identifiers_found,
+        "acknowledgement_sent":
+            acknowledgement_sent,
+        "acknowledgement_message_id":
+            acknowledgement_message_id,
+        "acknowledgement_error":
+            acknowledgement_error,
     }
