@@ -326,5 +326,127 @@
         </div>
         {% endif %}
     </section>
+    <section class="card">
+        <h2>Historial de cortes</h2>
+
+        <p class="muted">
+            Últimos 100 cortes generados y enviados.
+        </p>
+
+        {% if not daily_cutoffs %}
+        <p class="muted">
+            Todavía no existen cortes registrados.
+        </p>
+        {% else %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Cliente</th>
+                        <th>Periodo cubierto</th>
+                        <th>IDCIF</th>
+                        <th>Estado</th>
+                        <th>Enviado</th>
+                        <th>ID mensaje</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                {% for cutoff in daily_cutoffs %}
+                    <tr>
+                        <td>
+                            #{{ cutoff.id }}
+                        </td>
+
+                        <td>
+                            {{
+                                client_names.get(
+                                    cutoff.client_id,
+                                    "Cliente eliminado"
+                                )
+                            }}
+                        </td>
+
+                        <td>
+                            <div>
+                                {{
+                                    cutoff.period_start
+                                    .strftime(
+                                        "%d/%m/%Y %H:%M"
+                                    )
+                                }}
+                            </div>
+
+                            <div class="muted">
+                                hasta
+                                {{
+                                    cutoff.period_end
+                                    .strftime(
+                                        "%d/%m/%Y %H:%M"
+                                    )
+                                }}
+                            </div>
+                        </td>
+
+                        <td>
+                            <strong>
+                                {{ cutoff.idcif_count }}
+                            </strong>
+                        </td>
+
+                        <td>
+                            {% if cutoff.status == "SENT" %}
+                            <span class="status status-active">
+                                Enviado
+                            </span>
+                            {% elif cutoff.status == "SEND_FAILED" %}
+                            <span class="status status-inactive">
+                                Falló
+                            </span>
+                            {% else %}
+                            <span class="status">
+                                {{ cutoff.status }}
+                            </span>
+                            {% endif %}
+
+                            {% if cutoff.error_message %}
+                            <div class="muted">
+                                {{ cutoff.error_message }}
+                            </div>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if cutoff.sent_at %}
+                            {{
+                                cutoff.sent_at.strftime(
+                                    "%d/%m/%Y %H:%M"
+                                )
+                            }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if cutoff.whatsapp_message_id %}
+                            <code>
+                                {{
+                                    cutoff.whatsapp_message_id
+                                }}
+                            </code>
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </section>
+
 </main>
 {% endblock %}

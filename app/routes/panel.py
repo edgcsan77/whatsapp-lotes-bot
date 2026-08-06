@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.client import Client
+from app.models.daily_cutoff import DailyCutoff
 from app.models.provider import Provider
 
 
@@ -320,6 +321,22 @@ def clients_page(
         )
     )
 
+    daily_cutoffs = list(
+        db.scalars(
+            select(DailyCutoff)
+            .order_by(
+                DailyCutoff.period_end.desc(),
+                DailyCutoff.id.desc(),
+            )
+            .limit(100)
+        )
+    )
+
+    client_names = {
+        client.id: client.name
+        for client in clients
+    }
+
     return templates.TemplateResponse(
         request=request,
         name="panel/clients.html",
@@ -328,6 +345,8 @@ def clients_page(
             "title": "Clientes",
             "active_page": "clients",
             "clients": clients,
+            "daily_cutoffs": daily_cutoffs,
+            "client_names": client_names,
             "csrf_token":
                 ensure_csrf_token(request),
             "message": message,
