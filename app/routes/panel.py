@@ -20,7 +20,7 @@ from app.models.batch import Batch
 from app.models.client import Client
 from app.models.daily_cutoff import DailyCutoff
 from app.models.provider import Provider
-from app.models.request import Request
+from app.models.request import Request as RequestModel
 
 
 load_dotenv()
@@ -762,10 +762,10 @@ def operations_page(
 
     recent_requests = list(
         db.scalars(
-            select(Request)
+            select(RequestModel)
             .order_by(
-                Request.received_at.desc(),
-                Request.id.desc(),
+                RequestModel.received_at.desc(),
+                RequestModel.id.desc(),
             )
             .limit(100)
         )
