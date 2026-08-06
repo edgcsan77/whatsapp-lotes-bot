@@ -375,3 +375,47 @@ def render_daily_cutoff_message(
         f"CURP convertidas: {totals.curp_count}\n\n"
         f"Total: ${totals.total_amount:,.2f}"
     )
+
+
+async def send_daily_cutoff(
+    db: Session,
+    *,
+    cutoff: DailyCutoff,
+    client: Client,
+    message: str,
+) -> DailyCutoff:
+    from app.integrations.evolution_client import (
+        EvolutionAPIError,
+        send_text_message,
+    )
+
+    if cutoff.status == "SENT":
+        return cutoff
+
+    try:
+        send_result = await send_text_message(
+            destination_jid=client.whatsapp_jid,
+            text=message,
+        )
+
+    except (
+        EvolutionAPIError,
+        ValueError,
+    ) as exc:
+        cutoff.status = "SEND_FAILED"
+        cutoff.error_message = str(exc)[:1000]
+        db.commit()
+        db.refresh(cutoff)
+        return cutoff
+
+    cutoff.status = "SENT"
+    cutoff.whatsapp_message_id = (
+        send_result.message_id
+    )
+    cutoff.error_message = None
+    cutoff.sent_at = datetime.now(UTC)
+
+    db.commit()
+    db.refresh(cutoff)
+
+    return cutoff
