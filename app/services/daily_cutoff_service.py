@@ -344,3 +344,34 @@ def create_daily_cutoff(
     db.refresh(cutoff)
 
     return cutoff, True
+
+
+def format_local_datetime(
+    value: datetime,
+) -> str:
+    return value.strftime(
+        "%d/%m/%Y %H:%M"
+    )
+
+
+def render_daily_cutoff_message(
+    *,
+    client: Client,
+    period: CutoffPeriod,
+    totals: CutoffTotals,
+) -> str:
+    return (
+        "📊 CORTE DIARIO\n\n"
+        f"Cliente: {client.name}\n"
+        "Periodo: "
+        f"{format_local_datetime(period.start_local)}"
+        " – "
+        f"{format_local_datetime(period.end_local)}\n\n"
+        f"Solicitudes: {totals.total_requests}\n"
+        f"Entregadas: {totals.delivered_count}\n"
+        f"Pendientes: {totals.pending_count}\n"
+        f"Fallidas: {totals.failed_count}\n\n"
+        f"RFC directos: {totals.rfc_count}\n"
+        f"CURP convertidas: {totals.curp_count}\n\n"
+        f"Total: ${totals.total_amount:,.2f}"
+    )

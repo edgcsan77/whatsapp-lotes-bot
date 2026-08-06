@@ -290,3 +290,52 @@ def test_cutoff_is_idempotent(
     )
 
     assert len(rows) == 1
+
+
+def test_render_daily_cutoff_message(
+    db: Session,
+) -> None:
+    from app.services.daily_cutoff_service import (
+        CutoffTotals,
+        render_daily_cutoff_message,
+    )
+
+    client = create_client(db)
+
+    period = calculate_latest_cutoff_period(
+        now_utc=datetime(
+            2026,
+            8,
+            7,
+            5,
+            35,
+            tzinfo=UTC,
+        ),
+        cutoff_time_value="23:30",
+        timezone_name="America/Monterrey",
+    )
+
+    totals = CutoffTotals(
+        total_requests=5,
+        delivered_count=4,
+        pending_count=1,
+        failed_count=0,
+        rfc_count=3,
+        curp_count=2,
+        total_amount=Decimal("125.00"),
+    )
+
+    message = render_daily_cutoff_message(
+        client=client,
+        period=period,
+        totals=totals,
+    )
+
+    assert "📊 CORTE DIARIO" in message
+    assert "Cliente: Cliente corte" in message
+    assert "Solicitudes: 5" in message
+    assert "Entregadas: 4" in message
+    assert "Pendientes: 1" in message
+    assert "RFC directos: 3" in message
+    assert "CURP convertidas: 2" in message
+    assert "Total: $125.00" in message
