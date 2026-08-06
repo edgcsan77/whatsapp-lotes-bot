@@ -325,6 +325,19 @@ async def deliver_provider_results(
                     .append(request.id)
 
             db.commit()
+
+            # Import local para evitar dependencia circular.
+            from app.services.retry_service import (
+                register_retry_failure,
+            )
+
+            for request in requests:
+                register_retry_failure(
+                    "delivery",
+                    request.id,
+                    "INITIAL_DELIVERY_FAILED",
+                )
+
             continue
 
         now = datetime.now(UTC)

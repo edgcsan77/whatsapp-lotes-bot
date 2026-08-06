@@ -243,13 +243,25 @@ async def send_existing_batch(
             instance=provider.evolution_instance,
         )
 
-    except EvolutionAPIError:
+    except EvolutionAPIError as error:
         batch.status = "SEND_FAILED"
 
         for request in requests:
             request.status = "BATCH_SEND_FAILED"
 
         db.commit()
+
+        # Import local para evitar dependencia circular.
+        from app.services.retry_service import (
+            register_retry_failure,
+        )
+
+        register_retry_failure(
+            "batch",
+            batch.id,
+            error,
+        )
+
         raise
 
     now = datetime.now(UTC)
