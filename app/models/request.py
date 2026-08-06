@@ -1,7 +1,15 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -9,6 +17,14 @@ from app.database import Base
 
 class Request(Base):
     __tablename__ = "requests"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "whatsapp_message_id",
+            "identifier_key",
+            name="uq_requests_message_identifier",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -29,7 +45,14 @@ class Request(Base):
 
     whatsapp_message_id: Mapped[str] = mapped_column(
         String(200),
-        unique=True,
+        nullable=False,
+        index=True,
+    )
+
+    # RFC o CURP original que identifica de manera única
+    # una solicitud dentro del mismo mensaje de WhatsApp.
+    identifier_key: Mapped[str] = mapped_column(
+        String(18),
         nullable=False,
         index=True,
     )
@@ -60,9 +83,11 @@ class Request(Base):
         nullable=False,
     )
 
-    rfc: Mapped[str] = mapped_column(
+    # Será NULL cuando la entrada original sea una CURP
+    # pendiente de consulta y conversión con Moffin.
+    rfc: Mapped[str | None] = mapped_column(
         String(13),
-        nullable=False,
+        nullable=True,
         index=True,
     )
 

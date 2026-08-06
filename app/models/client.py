@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -41,6 +41,12 @@ class Client(Base):
     notes: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
+    )
+
+    default_provider_id: Mapped[int | None] = mapped_column(
+        ForeignKey("providers.id"),
+        nullable=True,
+        index=True,
     )
 
     price_per_request: Mapped[Decimal] = mapped_column(
