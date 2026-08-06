@@ -16,3 +16,4 @@ passlib[bcrypt]
 itsdangerous
 orjson
 structlog
+pytest
