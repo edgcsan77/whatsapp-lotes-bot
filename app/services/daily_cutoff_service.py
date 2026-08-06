@@ -159,6 +159,101 @@ def calculate_latest_cutoff_period(
     )
 
 
+
+
+def normalize_utc_datetime(
+    value: datetime,
+) -> datetime:
+    """
+    PostgreSQL devuelve timestamptz con zona.
+
+    SQLite puede devolver DateTime(timezone=True)
+    sin tzinfo durante las pruebas. En ese caso,
+    los valores del sistema se consideran UTC.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+
+    return value.astimezone(UTC)
+
+def get_latest_sent_cutoff(
+    db: Session,
+    *,
+    client_id: int,
+) -> DailyCutoff | None:
+    return db.scalar(
+        select(DailyCutoff)
+        .where(
+            DailyCutoff.client_id == client_id,
+            DailyCutoff.status == "SENT",
+        )
+        .order_by(
+            DailyCutoff.period_end.desc(),
+            DailyCutoff.id.desc(),
+        )
+        .limit(1)
+    )
+
+
+def calculate_next_cutoff_period(
+    db: Session,
+    *,
+    client: Client,
+    now_utc: datetime,
+) -> CutoffPeriod | None:
+    natural_period = (
+        calculate_latest_cutoff_period(
+            now_utc=now_utc,
+            cutoff_time_value=(
+                client.daily_cutoff_time
+            ),
+            timezone_name=client.timezone,
+        )
+    )
+
+    latest_sent = get_latest_sent_cutoff(
+        db,
+        client_id=client.id,
+    )
+
+    if latest_sent is None:
+        return natural_period
+
+    latest_end_utc = (
+        normalize_utc_datetime(
+            latest_sent.period_end
+        )
+    )
+
+    # El último corte ya cubrió este límite
+    # o incluso uno posterior.
+    if (
+        latest_end_utc
+        >= natural_period.end_utc
+    ):
+        return None
+
+    start_utc = max(
+        natural_period.start_utc,
+        latest_end_utc,
+    )
+
+    timezone = get_client_timezone(
+        client.timezone
+    )
+
+    return CutoffPeriod(
+        start_utc=start_utc,
+        end_utc=natural_period.end_utc,
+        start_local=start_utc.astimezone(
+            timezone
+        ),
+        end_local=(
+            natural_period.end_local
+        ),
+        timezone_name=client.timezone,
+    )
+
 def get_requests_for_period(
     db: Session,
     *,
@@ -284,13 +379,16 @@ def create_daily_cutoff(
         else datetime.now(UTC)
     )
 
-    period = calculate_latest_cutoff_period(
+    period = calculate_next_cutoff_period(
+        db,
+        client=client,
         now_utc=current_utc,
-        cutoff_time_value=(
-            client.daily_cutoff_time
-        ),
-        timezone_name=client.timezone,
     )
+
+    if period is None:
+        raise DailyCutoffError(
+            "CUTOFF_PERIOD_ALREADY_COVERED"
+        )
 
     existing = find_existing_cutoff(
         db,

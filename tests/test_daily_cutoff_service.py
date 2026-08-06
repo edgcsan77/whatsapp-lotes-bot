@@ -342,3 +342,106 @@ def test_render_daily_cutoff_message(
         "Si algún rastreo se envió doble"
         in message
     )
+
+
+def test_next_period_starts_after_last_sent_cutoff(
+    db: Session,
+) -> None:
+    from app.models.daily_cutoff import (
+        DailyCutoff,
+    )
+    from app.services.daily_cutoff_service import (
+        calculate_next_cutoff_period,
+    )
+
+    client = create_client(db)
+    client.daily_cutoff_time = "23:30"
+
+    previous = DailyCutoff(
+        client_id=client.id,
+        period_start=datetime(
+            2026, 8, 5, 21, 33,
+            tzinfo=UTC,
+        ),
+        period_end=datetime(
+            2026, 8, 6, 21, 33,
+            tzinfo=UTC,
+        ),
+        total_requests=3,
+        delivered_count=3,
+        pending_count=0,
+        failed_count=0,
+        rfc_count=1,
+        curp_count=2,
+        total_amount=Decimal("3.00"),
+        status="SENT",
+    )
+
+    db.add(previous)
+    db.commit()
+
+    period = calculate_next_cutoff_period(
+        db,
+        client=client,
+        now_utc=datetime(
+            2026, 8, 7, 5, 35,
+            tzinfo=UTC,
+        ),
+    )
+
+    assert period is not None
+    assert period.start_utc == datetime(
+        2026, 8, 6, 21, 33,
+        tzinfo=UTC,
+    )
+    assert period.end_utc == datetime(
+        2026, 8, 7, 5, 30,
+        tzinfo=UTC,
+    )
+
+
+def test_period_already_covered_returns_none(
+    db: Session,
+) -> None:
+    from app.models.daily_cutoff import (
+        DailyCutoff,
+    )
+    from app.services.daily_cutoff_service import (
+        calculate_next_cutoff_period,
+    )
+
+    client = create_client(db)
+
+    previous = DailyCutoff(
+        client_id=client.id,
+        period_start=datetime(
+            2026, 8, 5, 5, 30,
+            tzinfo=UTC,
+        ),
+        period_end=datetime(
+            2026, 8, 7, 5, 30,
+            tzinfo=UTC,
+        ),
+        total_requests=3,
+        delivered_count=3,
+        pending_count=0,
+        failed_count=0,
+        rfc_count=1,
+        curp_count=2,
+        total_amount=Decimal("3.00"),
+        status="SENT",
+    )
+
+    db.add(previous)
+    db.commit()
+
+    period = calculate_next_cutoff_period(
+        db,
+        client=client,
+        now_utc=datetime(
+            2026, 8, 7, 5, 35,
+            tzinfo=UTC,
+        ),
+    )
+
+    assert period is None

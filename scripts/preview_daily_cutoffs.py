@@ -7,7 +7,7 @@ from app.database import SessionLocal
 from app.models.client import Client
 from app.services.daily_cutoff_service import (
     calculate_cutoff_totals,
-    calculate_latest_cutoff_period,
+    calculate_next_cutoff_period,
     find_existing_cutoff,
     get_requests_for_period,
     render_daily_cutoff_message,
@@ -43,16 +43,22 @@ def main() -> None:
         for client in clients:
             try:
                 period = (
-                    calculate_latest_cutoff_period(
+                    calculate_next_cutoff_period(
+                        db,
+                        client=client,
                         now_utc=now_utc,
-                        cutoff_time_value=(
-                            client.daily_cutoff_time
-                        ),
-                        timezone_name=(
-                            client.timezone
-                        ),
                     )
                 )
+
+                if period is None:
+                    output["previews"].append(
+                        {
+                            "client_id": client.id,
+                            "client_name": client.name,
+                            "already_covered": True,
+                        }
+                    )
+                    continue
 
                 existing = find_existing_cutoff(
                     db,
