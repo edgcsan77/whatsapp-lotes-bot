@@ -16,9 +16,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.batch import Batch
 from app.models.client import Client
 from app.models.daily_cutoff import DailyCutoff
 from app.models.provider import Provider
+from app.models.request import Request
 
 
 load_dotenv()
@@ -741,6 +743,104 @@ def update_client(
         message="Cliente actualizado correctamente."
     )
 
+
+
+@router.get(
+    "/operations",
+    response_class=HTMLResponse,
+)
+def operations_page(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    redirect = require_authenticated(
+        request
+    )
+
+    if redirect:
+        return redirect
+
+    recent_requests = list(
+        db.scalars(
+            select(Request)
+            .order_by(
+                Request.received_at.desc(),
+                Request.id.desc(),
+            )
+            .limit(100)
+        )
+    )
+
+    recent_batches = list(
+        db.scalars(
+            select(Batch)
+            .order_by(
+                Batch.created_at.desc(),
+                Batch.id.desc(),
+            )
+            .limit(50)
+        )
+    )
+
+    clients = list(
+        db.scalars(
+            select(Client)
+        )
+    )
+
+    providers = list(
+        db.scalars(
+            select(Provider)
+        )
+    )
+
+    client_names = {
+        client.id: client.name
+        for client in clients
+    }
+
+    provider_names = {
+        provider.id: provider.name
+        for provider in providers
+    }
+
+    request_counts = {
+        "total": len(recent_requests),
+        "delivered": sum(
+            1
+            for item in recent_requests
+            if item.status == "DELIVERED"
+        ),
+        "pending": sum(
+            1
+            for item in recent_requests
+            if item.status not in {
+                "DELIVERED",
+                "CURP_LOOKUP_FAILED",
+            }
+        ),
+        "failed": sum(
+            1
+            for item in recent_requests
+            if item.status
+            == "CURP_LOOKUP_FAILED"
+        ),
+    }
+
+    return templates.TemplateResponse(
+        request=request,
+        name="panel/operations.html",
+        context={
+            "request": request,
+            "title": "Operación",
+            "active_page": "operations",
+            "recent_requests": recent_requests,
+            "recent_batches": recent_batches,
+            "client_names": client_names,
+            "provider_names": provider_names,
+            "request_counts": request_counts,
+        },
+    )
 
 def redirect_providers(
     *,

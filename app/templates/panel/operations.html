@@ -1,0 +1,298 @@
+{% extends "panel/base.html" %}
+
+{% block content %}
+<main class="container">
+    <header class="page-header">
+        <h1>Operación</h1>
+        <p>
+            Consulta solicitudes y lotes recientes
+            sin modificar el flujo de producción.
+        </p>
+    </header>
+
+    <section class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">
+                Solicitudes mostradas
+            </div>
+            <div class="stat-value">
+                {{ request_counts.total }}
+            </div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-label">
+                Entregadas
+            </div>
+            <div class="stat-value">
+                {{ request_counts.delivered }}
+            </div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-label">
+                Pendientes
+            </div>
+            <div class="stat-value">
+                {{ request_counts.pending }}
+            </div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-label">
+                Fallidas
+            </div>
+            <div class="stat-value">
+                {{ request_counts.failed }}
+            </div>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Solicitudes recientes</h2>
+
+        <p class="muted">
+            Últimas 100 solicitudes recibidas.
+        </p>
+
+        {% if not recent_requests %}
+        <p class="muted">
+            No existen solicitudes registradas.
+        </p>
+        {% else %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Cliente</th>
+                        <th>Entrada</th>
+                        <th>RFC / CURP</th>
+                        <th>Proveedor</th>
+                        <th>Estado</th>
+                        <th>Resultado</th>
+                        <th>Recibida</th>
+                        <th>Entregada</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                {% for item in recent_requests %}
+                    <tr>
+                        <td>#{{ item.id }}</td>
+
+                        <td>
+                            {{
+                                client_names.get(
+                                    item.client_id,
+                                    "Cliente eliminado"
+                                )
+                            }}
+                        </td>
+
+                        <td>
+                            {{ item.input_type }}
+                        </td>
+
+                        <td>
+                            {% if item.rfc %}
+                            <div>
+                                <strong>{{ item.rfc }}</strong>
+                            </div>
+                            {% endif %}
+
+                            {% if item.original_curp %}
+                            <div class="muted">
+                                {{ item.original_curp }}
+                            </div>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if item.provider_id %}
+                            {{
+                                provider_names.get(
+                                    item.provider_id,
+                                    "Proveedor eliminado"
+                                )
+                            }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if item.status == "DELIVERED" %}
+                            <span class="status status-active">
+                                Entregada
+                            </span>
+                            {% elif item.status in [
+                                "CURP_LOOKUP_FAILED",
+                                "BATCH_SEND_FAILED",
+                                "DELIVERY_FAILED"
+                            ] %}
+                            <span class="status status-inactive">
+                                {{ item.status }}
+                            </span>
+                            {% else %}
+                            <span class="status status-pending">
+                                {{ item.status }}
+                            </span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if item.result_code %}
+                            <div>
+                                {{ item.result_code }}
+                            </div>
+                            {% endif %}
+
+                            {% if item.idcif %}
+                            <div class="muted">
+                                IDCIF: {{ item.idcif }}
+                            </div>
+                            {% elif not item.result_code %}
+                            —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {{
+                                item.received_at.strftime(
+                                    "%d/%m/%Y %H:%M:%S"
+                                )
+                            }}
+                        </td>
+
+                        <td>
+                            {% if item.delivered_at %}
+                            {{
+                                item.delivered_at.strftime(
+                                    "%d/%m/%Y %H:%M:%S"
+                                )
+                            }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </section>
+
+    <section class="card">
+        <h2>Lotes recientes</h2>
+
+        <p class="muted">
+            Últimos 50 lotes creados.
+        </p>
+
+        {% if not recent_batches %}
+        <p class="muted">
+            No existen lotes registrados.
+        </p>
+        {% else %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Cliente</th>
+                        <th>Proveedor</th>
+                        <th>Solicitudes</th>
+                        <th>Estado</th>
+                        <th>Creado</th>
+                        <th>Enviado</th>
+                        <th>ID mensaje</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                {% for batch in recent_batches %}
+                    <tr>
+                        <td>#{{ batch.id }}</td>
+
+                        <td>
+                            {% if batch.client_id %}
+                            {{
+                                client_names.get(
+                                    batch.client_id,
+                                    "Cliente eliminado"
+                                )
+                            }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {{
+                                provider_names.get(
+                                    batch.provider_id,
+                                    "Proveedor eliminado"
+                                )
+                            }}
+                        </td>
+
+                        <td>
+                            {{ batch.request_count }}
+                        </td>
+
+                        <td>
+                            {% if batch.status == "SENT" %}
+                            <span class="status status-active">
+                                Enviado
+                            </span>
+                            {% elif batch.status == "SEND_FAILED" %}
+                            <span class="status status-inactive">
+                                Falló
+                            </span>
+                            {% else %}
+                            <span class="status status-pending">
+                                {{ batch.status }}
+                            </span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {{
+                                batch.created_at.strftime(
+                                    "%d/%m/%Y %H:%M:%S"
+                                )
+                            }}
+                        </td>
+
+                        <td>
+                            {% if batch.sent_at %}
+                            {{
+                                batch.sent_at.strftime(
+                                    "%d/%m/%Y %H:%M:%S"
+                                )
+                            }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if batch.provider_message_id %}
+                            <code>
+                                {{ batch.provider_message_id }}
+                            </code>
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </section>
+</main>
+{% endblock %}

@@ -280,6 +280,43 @@
             width: auto;
         }
 
+        .stats-grid {
+            display: grid;
+            grid-template-columns:
+                repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 18px;
+        }
+
+        .stat-label {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .stat-value {
+            margin-top: 7px;
+            font-size: 28px;
+            font-weight: 900;
+        }
+
+        .status-pending {
+            background: rgba(217, 119, 6, .18);
+            color: #fdba74;
+        }
+
+        code {
+            color: #bfdbfe;
+            overflow-wrap: anywhere;
+        }
+
         @media (max-width: 720px) {
             .topbar {
                 align-items: flex-start;
@@ -313,6 +350,13 @@
             class="{% if active_page == 'providers' %}active{% endif %}"
         >
             Proveedores
+        </a>
+
+        <a
+            href="/panel/operations"
+            class="{% if active_page == 'operations' %}active{% endif %}"
+        >
+            Operación
         </a>
 
         <a href="/panel/logout">
