@@ -10,14 +10,12 @@ from app.services.curp_rfc_engine import (
 
 
 def test_curp_retry_schedule() -> None:
-    assert MAX_CURP_ATTEMPTS == 5
+    assert MAX_CURP_ATTEMPTS == 3
 
     assert CURP_RETRY_DELAYS_MINUTES == {
         1: 1,
         2: 2,
         3: 5,
-        4: 10,
-        5: 30,
     }
 
 

@@ -82,6 +82,18 @@
             background: var(--surface-light);
         }
 
+        .navigation .nav-logout {
+            margin-left: 8px;
+            border-left: 1px solid var(--border);
+            padding-left: 18px;
+            color: #fca5a5;
+        }
+
+        .navigation .nav-logout:hover {
+            color: #fff;
+            background: rgba(220, 38, 38, .18);
+        }
+
         .container {
             width: min(1400px, calc(100% - 32px));
             margin: 28px auto 60px;
@@ -1042,6 +1054,31 @@
                 overflow-x: auto;
             }
         }
+
+        .client-row-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .client-row-actions button {
+            min-width: 82px;
+        }
+
+        .client-row-actions
+        .button-danger {
+            background: rgba(220, 38, 38, .18);
+            border: 1px solid rgba(220, 38, 38, .45);
+            color: #fca5a5;
+        }
+
+        .client-row-actions
+        .button-danger:hover {
+            background: #dc2626;
+            color: #fff;
+        }
+
     </style>
 </head>
 
@@ -1059,7 +1096,7 @@
         </a>
 
         <a
-            href="/panel"
+            href="/panel/clients"
             class="{% if active_page == 'clients' %}active{% endif %}"
         >
             Clientes
@@ -1079,9 +1116,6 @@
             Operación
         </a>
 
-        <a href="/panel/logout">
-            Cerrar sesión
-        </a>
         <a
             href="/panel/cutoffs"
             class="{% if active_page == 'cutoffs' %}active{% endif %}"
@@ -1103,6 +1137,12 @@
             Sistema
         </a>
 
+        <a
+            href="/panel/logout"
+            class="nav-logout"
+        >
+            Cerrar sesión
+        </a>
     </nav>
 </header>
 {% endif %}

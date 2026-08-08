@@ -69,6 +69,7 @@ def get_active_provider_by_jid(
     return db.scalar(
         select(Provider).where(
             Provider.whatsapp_jid == jid,
+            Provider.deleted_at.is_(None),
             Provider.active.is_(True),
         )
     )

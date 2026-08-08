@@ -64,6 +64,7 @@ def create_pending_batch(
     *,
     provider_id: int,
     client_id: int | None = None,
+    client_ids: list[int] | tuple[int, ...] | None = None,
     max_items: int | None = None,
 ) -> BatchCreationResult:
     provider = db.get(
@@ -98,9 +99,34 @@ def create_pending_batch(
         .with_for_update(skip_locked=True)
     )
 
+    if (
+        client_id is not None
+        and client_ids is not None
+    ):
+        raise BatchServiceError(
+            "CLIENT_FILTER_CONFLICT"
+        )
+
     if client_id is not None:
         query = query.where(
             Request.client_id == client_id
+        )
+
+    if client_ids is not None:
+        normalized_client_ids = [
+            int(item)
+            for item in client_ids
+        ]
+
+        if not normalized_client_ids:
+            raise BatchServiceError(
+                "EMPTY_CLIENT_IDS"
+            )
+
+        query = query.where(
+            Request.client_id.in_(
+                normalized_client_ids
+            )
         )
 
     requests = list(

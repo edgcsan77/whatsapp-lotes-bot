@@ -441,7 +441,20 @@
                                 )
                             }}
                             {% else %}
+                            {% set client_count =
+                                batch_client_counts.get(
+                                    batch.id,
+                                    0
+                                )
+                            %}
+
+                            {% if client_count == 1 %}
+                            1 cliente
+                            {% elif client_count > 1 %}
+                            {{ client_count }} clientes
+                            {% else %}
                             —
+                            {% endif %}
                             {% endif %}
                         </td>
 

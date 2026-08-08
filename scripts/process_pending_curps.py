@@ -1,3 +1,4 @@
+import asyncio
 import argparse
 import json
 
@@ -24,7 +25,7 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
+async def main() -> None:
     args = parse_arguments()
 
     limit = max(
@@ -33,7 +34,7 @@ def main() -> None:
     )
 
     with SessionLocal() as db:
-        result = process_pending_curps(
+        result = await process_pending_curps(
             db,
             limit=limit,
         )
@@ -67,4 +68,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(
+        main()
+    )

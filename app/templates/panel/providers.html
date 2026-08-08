@@ -142,13 +142,14 @@
                 <thead>
                     <tr>
                         <th>Proveedor</th>
+                        <th>Solicitudes</th>
                         <th>JID</th>
                         <th>Instancia</th>
                         <th>Encabezado</th>
                         <th>Prioridad</th>
                         <th>Espera</th>
                         <th>Estado</th>
-                        <th>Guardar</th>
+                        <th>Acciones</th>
                     </tr>
                 </thead>
 
@@ -177,6 +178,17 @@
                                     value="{{ provider.notes or '' }}"
                                     placeholder="Notas"
                                 >
+                            </td>
+
+                            <td>
+                                <strong>
+                                    {{
+                                        provider_request_counts.get(
+                                            provider.id,
+                                            0
+                                        )
+                                    }}
+                                </strong>
                             </td>
 
                             <td>
@@ -251,9 +263,23 @@
                             </td>
 
                             <td>
-                                <button type="submit">
-                                    Guardar
-                                </button>
+                                <div class="client-row-actions">
+                                    <button
+                                        type="submit"
+                                    >
+                                        Guardar
+                                    </button>
+
+                                    <button
+                                        type="submit"
+                                        class="button-danger"
+                                        formaction="/panel/providers/{{ provider.id }}/delete"
+                                        formmethod="post"
+                                        onclick="return confirm('¿Eliminar este proveedor? Dejará de estar disponible y desaparecerá de Proveedores. Su historial se conservará.');"
+                                    >
+                                        Eliminar
+                                    </button>
+                                </div>
                             </td>
                         </form>
                     </tr>

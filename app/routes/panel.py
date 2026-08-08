@@ -432,7 +432,7 @@ def redirect_clients(
             f"error={quote(error)}"
         )
 
-    url = "/panel"
+    url = "/panel/clients"
 
     if query_parts:
         url += "?" + "&".join(query_parts)
@@ -551,7 +551,7 @@ def logout(
 
 
 @router.get(
-    "",
+    "/clients",
     response_class=HTMLResponse,
 )
 def clients_page(
@@ -569,7 +569,11 @@ def clients_page(
 
     clients = list(
         db.scalars(
-            select(Client).order_by(
+            select(Client)
+            .where(
+                Client.deleted_at.is_(None)
+            )
+            .order_by(
                 Client.active.desc(),
                 Client.name.asc(),
             )
@@ -599,6 +603,22 @@ def clients_page(
         for client in clients
     }
 
+    client_request_counts = {
+        int(client_id): int(total)
+        for client_id, total in db.execute(
+            select(
+                RequestModel.client_id,
+                func.count(RequestModel.id),
+            )
+            .where(
+                RequestModel.client_id.is_not(None)
+            )
+            .group_by(
+                RequestModel.client_id
+            )
+        ).all()
+    }
+
     return templates.TemplateResponse(
         request=request,
         name="panel/clients.html",
@@ -610,6 +630,8 @@ def clients_page(
             "daily_cutoffs": daily_cutoffs,
             "client_names": client_names,
             "next_cutoffs": next_cutoffs,
+            "client_request_counts":
+                client_request_counts,
             "available_timezones":
                 AVAILABLE_TIMEZONES,
             "csrf_token":
@@ -751,6 +773,86 @@ def create_client(
 
     return redirect_clients(
         message="Cliente agregado correctamente."
+    )
+
+
+@router.post(
+    "/clients/{client_id}/delete"
+)
+def delete_client(
+    client_id: int,
+    request: Request,
+    csrf_token: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    redirect = require_authenticated(
+        request
+    )
+
+    if redirect:
+        return redirect
+
+    if not validate_csrf(
+        request,
+        csrf_token,
+    ):
+        return redirect_clients(
+            error="Token de seguridad inválido."
+        )
+
+    client = db.get(
+        Client,
+        client_id,
+    )
+
+    if client is None:
+        return redirect_clients(
+            error="Cliente no encontrado."
+        )
+
+    if client.deleted_at is not None:
+        return redirect_clients(
+            message=(
+                "El cliente ya estaba eliminado."
+            )
+        )
+
+    client_name = client.name
+    client_jid = client.whatsapp_jid
+
+    # Eliminación lógica:
+    # conservamos solicitudes, lotes,
+    # cortes y auditoría histórica.
+    client.active = False
+    client.batch_enabled = False
+    client.daily_cutoff_enabled = False
+    client.deleted_at = datetime.now(UTC)
+
+    register_admin_audit(
+        db,
+        request,
+        action="CLIENT_DELETED",
+        entity_type="CLIENT",
+        entity_id=client.id,
+        summary=(
+            f"Cliente #{client.id} eliminado"
+        ),
+        details=(
+            f"Nombre: {client_name}\n"
+            f"JID: {client_jid}\n"
+            "Tipo: eliminación lógica; "
+            "historial conservado"
+        ),
+    )
+
+    db.commit()
+
+    return redirect_clients(
+        message=(
+            f"Cliente «{client_name}» "
+            "eliminado correctamente. "
+            "Su historial se conservó."
+        )
     )
 
 
@@ -1450,7 +1552,7 @@ def audit_page(
 )
 def cutoffs_page(
     request: Request,
-    client_id: int | None = None,
+    client_id: str | None = None,
     status: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -1463,6 +1565,20 @@ def cutoffs_page(
 
     if redirect:
         return redirect
+
+    raw_client_id = str(
+        client_id or ""
+    ).strip()
+
+    if raw_client_id:
+        try:
+            client_id = int(
+                raw_client_id
+            )
+        except ValueError:
+            client_id = None
+    else:
+        client_id = None
 
     page_size = 25
     page = max(page, 1)
@@ -1832,6 +1948,7 @@ def system_status_page(
     )
 
 
+@router.get("")
 @router.get("/")
 def panel_root() -> RedirectResponse:
     return RedirectResponse(
@@ -3146,7 +3263,7 @@ def request_detail_page(
 )
 def operations_page(
     request: Request,
-    client_id: int | None = None,
+    client_id: str | None = None,
     status: str | None = None,
     input_type: str | None = None,
     query: str | None = None,
@@ -3162,6 +3279,20 @@ def operations_page(
 
     if redirect:
         return redirect
+
+    raw_client_id = str(
+        client_id or ""
+    ).strip()
+
+    if raw_client_id:
+        try:
+            client_id = int(
+                raw_client_id
+            )
+        except ValueError:
+            client_id = None
+    else:
+        client_id = None
 
     request_page_size = 25
     batch_page_size = 20
@@ -3501,6 +3632,41 @@ def operations_page(
         query_params
     )
 
+    recent_batch_ids = [
+        batch.id
+        for batch in recent_batches
+    ]
+
+    batch_client_counts: dict[int, int] = {}
+
+    if recent_batch_ids:
+        batch_client_counts = {
+            int(batch_id): int(total)
+            for batch_id, total in db.execute(
+                select(
+                    BatchItem.batch_id,
+                    func.count(
+                        func.distinct(
+                            RequestModel.client_id
+                        )
+                    ),
+                )
+                .join(
+                    RequestModel,
+                    RequestModel.id
+                    == BatchItem.request_id,
+                )
+                .where(
+                    BatchItem.batch_id.in_(
+                        recent_batch_ids
+                    )
+                )
+                .group_by(
+                    BatchItem.batch_id
+                )
+            ).all()
+        }
+
     return templates.TemplateResponse(
         request=request,
         name="panel/operations.html",
@@ -3510,6 +3676,8 @@ def operations_page(
             "active_page": "operations",
             "recent_requests": recent_requests,
             "recent_batches": recent_batches,
+            "batch_client_counts":
+                batch_client_counts,
             "clients": clients,
             "status_options": status_options,
             "client_names": client_names,
@@ -3599,13 +3767,33 @@ def providers_page(
 
     providers = list(
         db.scalars(
-            select(Provider).order_by(
+            select(Provider)
+            .where(
+                Provider.deleted_at.is_(None)
+            )
+            .order_by(
                 Provider.active.desc(),
                 Provider.priority.asc(),
                 Provider.name.asc(),
             )
         )
     )
+
+    provider_request_counts = {
+        int(provider_id): int(total)
+        for provider_id, total in db.execute(
+            select(
+                RequestModel.provider_id,
+                func.count(RequestModel.id),
+            )
+            .where(
+                RequestModel.provider_id.is_not(None)
+            )
+            .group_by(
+                RequestModel.provider_id
+            )
+        ).all()
+    }
 
     return templates.TemplateResponse(
         request=request,
@@ -3615,6 +3803,8 @@ def providers_page(
             "title": "Proveedores",
             "active_page": "providers",
             "providers": providers,
+            "provider_request_counts":
+                provider_request_counts,
             "csrf_token":
                 ensure_csrf_token(request),
             "message": message,
@@ -3715,6 +3905,81 @@ def create_provider(
 
     return redirect_providers(
         message="Proveedor agregado correctamente."
+    )
+
+
+@router.post(
+    "/providers/{provider_id}/delete"
+)
+def delete_provider(
+    provider_id: int,
+    request: Request,
+    csrf_token: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    redirect = require_authenticated(
+        request
+    )
+
+    if redirect:
+        return redirect
+
+    if not validate_csrf(
+        request,
+        csrf_token,
+    ):
+        return redirect_providers(
+            error="Token de seguridad inválido."
+        )
+
+    provider = db.get(
+        Provider,
+        provider_id,
+    )
+
+    if provider is None:
+        return redirect_providers(
+            error="Proveedor no encontrado."
+        )
+
+    if provider.deleted_at is not None:
+        return redirect_providers(
+            message=(
+                "El proveedor ya estaba eliminado."
+            )
+        )
+
+    provider_name = provider.name
+    provider_jid = provider.whatsapp_jid
+
+    provider.active = False
+    provider.deleted_at = datetime.now(UTC)
+
+    register_admin_audit(
+        db,
+        request,
+        action="PROVIDER_DELETED",
+        entity_type="PROVIDER",
+        entity_id=provider.id,
+        summary=(
+            f"Proveedor #{provider.id} eliminado"
+        ),
+        details=(
+            f"Nombre: {provider_name}\n"
+            f"JID: {provider_jid}\n"
+            "Tipo: eliminación lógica; "
+            "historial conservado"
+        ),
+    )
+
+    db.commit()
+
+    return redirect_providers(
+        message=(
+            f"Proveedor «{provider_name}» "
+            "eliminado correctamente. "
+            "Su historial se conservó."
+        )
     )
 
 

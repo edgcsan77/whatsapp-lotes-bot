@@ -11,7 +11,7 @@ def test_single_rfc_acknowledgement() -> None:
     assert text == (
         "✅ Solicitud recibida\n\n"
         "RFC: VALA830403RA8\n"
-        "Estado: pendiente de envío por lote"
+        "Estado: pendiente de envío"
     )
 
 

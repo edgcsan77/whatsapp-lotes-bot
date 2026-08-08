@@ -171,8 +171,9 @@ def parse_evolution_payload(
     )
 
     sender_jid = first_non_empty(
-        key.get("participant"),
         key.get("participantAlt"),
+        key.get("participant"),
+        data.get("participantAlt"),
         data.get("participant"),
         data.get("sender"),
     ) or None

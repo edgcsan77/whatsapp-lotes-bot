@@ -24,7 +24,7 @@ app.add_middleware(
     session_cookie="whatsapp_lotes_panel",
     max_age=60 * 60 * 12,
     same_site="lax",
-    https_only=False,
+    https_only=True,
 )
 
 app.include_router(

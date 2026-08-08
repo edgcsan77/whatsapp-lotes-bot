@@ -186,10 +186,11 @@
                         <th>Cliente</th>
                         <th>JID</th>
                         <th>Precio</th>
+                        <th>Solicitudes</th>
                         <th>Lote</th>
                         <th>Corte</th>
                         <th>Estado</th>
-                        <th>Guardar</th>
+                        <th>Acciones</th>
                     </tr>
                 </thead>
 
@@ -237,6 +238,17 @@
                                     value="{{ client.price_per_request }}"
                                     required
                                 >
+                            </td>
+
+                            <td>
+                                <strong>
+                                    {{
+                                        client_request_counts.get(
+                                            client.id,
+                                            0
+                                        )
+                                    }}
+                                </strong>
                             </td>
 
                             <td>
@@ -351,9 +363,23 @@
                             </td>
 
                             <td>
-                                <button type="submit">
-                                    Guardar
-                                </button>
+                                <div class="client-row-actions">
+                                    <button
+                                        type="submit"
+                                    >
+                                        Guardar
+                                    </button>
+
+                                    <button
+                                        type="submit"
+                                        class="button-danger"
+                                        formaction="/panel/clients/{{ client.id }}/delete"
+                                        formmethod="post"
+                                        onclick="return confirm('¿Eliminar este cliente? Dejará de estar autorizado y desaparecerá de Clientes. Su historial se conservará.');"
+                                    >
+                                        Eliminar
+                                    </button>
+                                </div>
                             </td>
                         </form>
                     </tr>

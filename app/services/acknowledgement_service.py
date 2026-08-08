@@ -43,7 +43,7 @@ def build_request_acknowledgement(
         return (
             "✅ Solicitud recibida\n\n"
             f"{label}: {identifier_block}\n"
-            "Estado: pendiente de envío por lote"
+            "Estado: pendiente de envío"
         )
 
     lines = "\n".join(
@@ -55,5 +55,5 @@ def build_request_acknowledgement(
         "✅ Solicitudes recibidas\n\n"
         f"{lines}\n\n"
         f"Total: {len(normalized)}\n"
-        "Estado: pendientes de envío por lote"
+        "Estado: pendientes de envío"
     )

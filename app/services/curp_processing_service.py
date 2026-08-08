@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.integrations.evolution_client import (
+    EvolutionAPIError,
+    send_text_message,
+)
+
 from app.models.client import Client
 from app.models.provider import Provider
 from app.models.request import Request
@@ -17,14 +22,12 @@ from app.services.curp_rfc_engine import (
 
 logger = logging.getLogger(__name__)
 
-MAX_CURP_ATTEMPTS = 5
+MAX_CURP_ATTEMPTS = 3
 
 CURP_RETRY_DELAYS_MINUTES = {
     1: 1,
     2: 2,
     3: 5,
-    4: 10,
-    5: 30,
 }
 
 CURP_RETRY_TTL_SECONDS = 60 * 60 * 24 * 14
@@ -206,6 +209,7 @@ def is_permanent_curp_error(
     error: CurpRfcError,
 ) -> bool:
     text = str(error)
+    normalized_text = text.lower()
 
     permanent_prefixes = (
         "CURP_INVALIDA",
@@ -216,8 +220,18 @@ def is_permanent_curp_error(
         "RFC_CURP_DATE_MISMATCH",
     )
 
-    return text.startswith(
+    if text.startswith(
         permanent_prefixes
+    ):
+        return True
+
+    permanent_messages = (
+        "no se encuentra en la base de datos",
+    )
+
+    return any(
+        message in normalized_text
+        for message in permanent_messages
     )
 
 
@@ -319,6 +333,57 @@ def resolve_provider(
     return provider
 
 
+async def notify_curp_lookup_failed(
+    request: Request,
+) -> None:
+    destination_jid = str(
+        request.source_jid or ""
+    ).strip()
+
+    if not destination_jid:
+        logger.error(
+            "No se pudo avisar fallo CURP: "
+            "request_id=%s source_jid vacío",
+            request.id,
+        )
+        return
+
+    curp = str(
+        request.original_curp
+        or request.identifier_key
+        or ""
+    ).strip().upper()
+
+    text = (
+        "⚠️ No fue posible procesar la CURP.\n\n"
+        f"{curp}\n\n"
+        "Verifica que esté escrita correctamente "
+        "e intenta nuevamente."
+    )
+
+    try:
+        await send_text_message(
+            destination_jid=destination_jid,
+            text=text,
+        )
+
+        logger.info(
+            "Aviso CURP fallida enviado: "
+            "request_id=%s",
+            request.id,
+        )
+
+    except (
+        EvolutionAPIError,
+        ValueError,
+    ):
+        logger.exception(
+            "No se pudo enviar aviso de CURP "
+            "fallida: request_id=%s",
+            request.id,
+        )
+
+
 def process_one_curp_request(
     db: Session,
     *,
@@ -384,7 +449,7 @@ def process_one_curp_request(
     return rfc, corrected_curp
 
 
-def process_pending_curps(
+async def process_pending_curps(
     db: Session,
     *,
     limit: int = 3,
@@ -435,6 +500,10 @@ def process_pending_curps(
                     "CURP_LOOKUP_FAILED"
                 )
                 db.commit()
+
+                await notify_curp_lookup_failed(
+                    request
+                )
 
                 result.failed_request_ids.append(
                     request_id
@@ -523,6 +592,10 @@ def process_pending_curps(
                             error,
                         )
 
+                        await notify_curp_lookup_failed(
+                            refreshed
+                        )
+
                         result\
                             .failed_request_ids\
                             .append(request_id)
@@ -541,6 +614,10 @@ def process_pending_curps(
                         ):
                             refreshed.status = (
                                 "CURP_LOOKUP_FAILED"
+                            )
+
+                            await notify_curp_lookup_failed(
+                                refreshed
                             )
 
                             result\
@@ -582,13 +659,30 @@ def process_pending_curps(
                     )
 
                     if refreshed is not None:
+                        reached_max = (
+                            attempt
+                            >= MAX_CURP_ATTEMPTS
+                        )
+
                         refreshed.status = (
                             "CURP_LOOKUP_FAILED"
-                            if attempt
-                            >= MAX_CURP_ATTEMPTS
+                            if reached_max
                             else "CURP_LOOKUP_RETRY"
                         )
                         db.commit()
+
+                        if reached_max:
+                            await notify_curp_lookup_failed(
+                                refreshed
+                            )
+
+                            result\
+                                .failed_request_ids\
+                                .append(request_id)
+                        else:
+                            result\
+                                .retried_request_ids\
+                                .append(request_id)
 
                     result.errors.append(
                         f"request_id={request_id} "

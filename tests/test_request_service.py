@@ -277,3 +277,82 @@ def test_inactive_client_is_rejected(
                 text="VALA830403RA8",
             ),
         )
+
+
+@pytest.mark.parametrize(
+    "curp",
+    [
+        "CASE020722HTSRNDA8",
+        "EIFJ970525HSPNLS09",
+    ],
+)
+def test_valid_curp_formats_are_accepted(
+    db: Session,
+    curp: str,
+) -> None:
+    client = create_client(db)
+
+    result = register_client_message(
+        db,
+        IncomingWhatsAppMessage(
+            message_id=f"VALID-{curp}",
+            source_jid=client.whatsapp_jid,
+            sender_jid=None,
+            sender_name=None,
+            text=curp,
+        ),
+    )
+
+    assert result.created_count == 1
+    assert result.invalid_curps == []
+
+    request = db.scalar(
+        select(Request)
+    )
+
+    assert request is not None
+    assert request.original_curp == curp
+    assert (
+        request.status
+        == "PENDING_CURP_LOOKUP"
+    )
+
+
+@pytest.mark.parametrize(
+    "curp",
+    [
+        "CASE020722HTSRNDAB",
+        "C4SE020722HTSRNDA8",
+        "CASE20722HTSRNDA8",
+        "CASE020722PTSRNDA8",
+        "EIFJ97O525HSPNLS09",
+        "EIF970525HSPNLS09",
+    ],
+)
+def test_invalid_curp_formats_are_rejected(
+    db: Session,
+    curp: str,
+) -> None:
+    client = create_client(db)
+
+    result = register_client_message(
+        db,
+        IncomingWhatsAppMessage(
+            message_id=f"INVALID-{curp}",
+            source_jid=client.whatsapp_jid,
+            sender_jid=None,
+            sender_name=None,
+            text=curp,
+        ),
+    )
+
+    assert result.created_count == 0
+    assert curp in result.invalid_curps
+
+    requests = list(
+        db.scalars(
+            select(Request)
+        )
+    )
+
+    assert requests == []

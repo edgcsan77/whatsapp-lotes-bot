@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from decimal import Decimal
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -8,6 +9,10 @@ from sqlalchemy.orm import Session
 from app.models.client import Client
 from app.models.request import Request
 from app.services.message_parser import parse_client_message
+from app.services.curp_validator import (
+    extract_curp_like_candidates,
+    validate_curp_format,
+)
 
 
 class RequestRegistrationError(Exception):
@@ -39,7 +44,17 @@ class RegistrationResult:
     created_ids: list[int] = field(default_factory=list)
     created_identifiers: list[str] = field(default_factory=list)
     duplicate_identifiers: list[str] = field(default_factory=list)
+    recent_in_progress_identifiers: list[str] = field(
+        default_factory=list
+    )
+    recent_processed_identifiers: list[str] = field(
+        default_factory=list
+    )
     ignored_curps: list[str] = field(default_factory=list)
+    invalid_curps: list[str] = field(default_factory=list)
+    invalid_curp_reasons: dict[str, str] = field(
+        default_factory=dict
+    )
     no_identifiers_found: bool = False
 
     @property
@@ -49,6 +64,17 @@ class RegistrationResult:
     @property
     def duplicate_count(self) -> int:
         return len(self.duplicate_identifiers)
+
+
+IN_PROGRESS_REQUEST_STATUSES = {
+    "RECEIVED",
+    "PENDING_CURP_LOOKUP",
+    "CURP_LOOKUP_RETRY",
+    "PENDING_BATCH",
+    "BATCH_CREATED",
+    "SENT_TO_PROVIDER",
+    "RESULT_RECEIVED",
+}
 
 
 def normalize_required(value: str, field_name: str) -> str:
@@ -71,7 +97,8 @@ def get_client_by_source_jid(
 
     client = db.scalar(
         select(Client).where(
-            Client.whatsapp_jid == source_jid
+            Client.whatsapp_jid == source_jid,
+            Client.deleted_at.is_(None),
         )
     )
 
@@ -111,11 +138,47 @@ def register_client_message(
         message.text
     )
 
+    curp_candidates = (
+        extract_curp_like_candidates(
+            message.text
+        )
+    )
+
+    invalid_curps: list[str] = []
+    invalid_curp_reasons: dict[
+        str,
+        str,
+    ] = {}
+
+    for candidate in curp_candidates:
+        valid, reason = (
+            validate_curp_format(
+                candidate
+            )
+        )
+
+        if valid:
+            continue
+
+        invalid_curps.append(
+            candidate
+        )
+
+        invalid_curp_reasons[
+            candidate
+        ] = reason
+
     result = RegistrationResult(
         client_id=client.id,
         client_name=client.name,
         parsed_count=len(parsed_items),
-        no_identifiers_found=not parsed_items,
+        invalid_curps=invalid_curps,
+        invalid_curp_reasons=
+            invalid_curp_reasons,
+        no_identifiers_found=(
+            not parsed_items
+            and not invalid_curps
+        ),
     )
 
     if not parsed_items:
@@ -125,6 +188,28 @@ def register_client_message(
 
     for parsed in parsed_items:
         identifier_key = parsed.identifier.strip().upper()
+
+        if parsed.identifier_type == "CURP":
+            valid, reason = (
+                validate_curp_format(
+                    identifier_key
+                )
+            )
+
+            if not valid:
+                if (
+                    identifier_key
+                    not in result.invalid_curps
+                ):
+                    result.invalid_curps.append(
+                        identifier_key
+                    )
+
+                result.invalid_curp_reasons[
+                    identifier_key
+                ] = reason
+
+                continue
 
         for ignored_curp in parsed.ignored_curps:
             ignored_curp = ignored_curp.strip().upper()
@@ -145,9 +230,44 @@ def register_client_message(
         )
 
         if existing_id is not None:
+            # Mismo webhook/message_id:
+            # idempotencia técnica. No genera
+            # aviso adicional al cliente.
             result.duplicate_identifiers.append(
                 identifier_key
             )
+            continue
+
+        duplicate_since = (
+            datetime.now(UTC)
+            - timedelta(hours=24)
+        )
+
+        recent_request = db.scalar(
+            select(Request)
+            .where(
+                Request.client_id == client.id,
+                Request.identifier_key
+                == identifier_key,
+                Request.received_at
+                >= duplicate_since,
+            )
+            .order_by(
+                Request.received_at.desc(),
+                Request.id.desc(),
+            )
+            .limit(1)
+        )
+
+        if recent_request is not None:
+            if (
+                recent_request.status
+                in IN_PROGRESS_REQUEST_STATUSES
+            ):
+                result                    .recent_in_progress_identifiers                    .append(identifier_key)
+            else:
+                result                    .recent_processed_identifiers                    .append(identifier_key)
+
             continue
 
         if parsed.identifier_type == "RFC":

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     public_base_url: str
     admin_session_secret: str
+    whatsapp_admin_jids: str = ""
 
     default_batch_interval_minutes: int = 15
     default_batch_max_items: int = 50
