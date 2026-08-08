@@ -1,0 +1,188 @@
+{% extends "panel/base.html" %}
+
+{% block content %}
+<main class="container">
+
+    <header class="dashboard-header">
+        <div>
+            <h1>Estado del sistema</h1>
+
+            <p>
+                Supervisión en tiempo real de los
+                procesos principales del bot.
+            </p>
+        </div>
+
+        <a
+            href="/panel/system"
+            class="button button-secondary"
+        >
+            Actualizar
+        </a>
+    </header>
+
+    <section class="system-overview">
+        {% if system_healthy %}
+        <div class="system-banner system-banner-ok">
+            <div class="system-banner-icon">
+                ✓
+            </div>
+
+            <div>
+                <strong>
+                    Todos los sistemas operativos
+                </strong>
+
+                <p>
+                    No se detectan procesos detenidos
+                    ni últimas ejecuciones fallidas.
+                </p>
+            </div>
+        </div>
+        {% else %}
+        <div class="system-banner system-banner-warning">
+            <div class="system-banner-icon">
+                !
+            </div>
+
+            <div>
+                <strong>
+                    Requiere atención
+                </strong>
+
+                <p>
+                    Uno o más componentes necesitan
+                    revisión.
+                </p>
+            </div>
+        </div>
+        {% endif %}
+    </section>
+
+    <section class="system-grid">
+
+        <article class="system-card">
+            <div class="system-card-header">
+                <div>
+                    <span class="system-kicker">
+                        SERVICIO
+                    </span>
+
+                    <h2>Web / Panel</h2>
+                </div>
+
+                {% if web_status.healthy %}
+                <span class="health-pill health-ok">
+                    ● Operativo
+                </span>
+                {% else %}
+                <span class="health-pill health-bad">
+                    ● Atención
+                </span>
+                {% endif %}
+            </div>
+
+            <p class="muted">
+                FastAPI y Gunicorn que atienden
+                el panel y los webhooks.
+            </p>
+
+            <div class="system-details">
+                <div>
+                    <span>Estado</span>
+                    <strong>
+                        {{ web_status.active_state }}
+                    </strong>
+                </div>
+
+                <div>
+                    <span>Subestado</span>
+                    <strong>
+                        {{ web_status.sub_state }}
+                    </strong>
+                </div>
+
+                <div>
+                    <span>Resultado</span>
+                    <strong>
+                        {{ web_status.result }}
+                    </strong>
+                </div>
+            </div>
+
+            <div class="unit-name">
+                {{ web_status.unit }}
+            </div>
+        </article>
+
+        {% for item in automations %}
+        <article class="system-card">
+            <div class="system-card-header">
+                <div>
+                    <span class="system-kicker">
+                        AUTOMATIZACIÓN
+                    </span>
+
+                    <h2>{{ item.name }}</h2>
+                </div>
+
+                {% if item.healthy %}
+                <span class="health-pill health-ok">
+                    ● Operativo
+                </span>
+                {% else %}
+                <span class="health-pill health-bad">
+                    ● Atención
+                </span>
+                {% endif %}
+            </div>
+
+            <p class="muted">
+                {{ item.description }}
+            </p>
+
+            <div class="system-details">
+                <div>
+                    <span>Timer</span>
+                    <strong>
+                        {{ item.active_state }}
+                    </strong>
+                </div>
+
+                <div>
+                    <span>Último resultado</span>
+                    <strong>
+                        {{ item.last_result }}
+                    </strong>
+                </div>
+
+                <div>
+                    <span>Última ejecución</span>
+                    <strong class="system-time">
+                        {{ item.last_trigger }}
+                    </strong>
+                </div>
+
+                <div>
+                    <span>Próxima ejecución</span>
+                    <strong class="system-time">
+                        {{ item.next_trigger }}
+                    </strong>
+                </div>
+            </div>
+
+            <div class="unit-name">
+                {{ item.timer }}
+            </div>
+        </article>
+        {% endfor %}
+
+    </section>
+
+    <p class="system-readonly-note">
+        Esta pantalla es únicamente de consulta.
+        No inicia, detiene ni reinicia servicios.
+    </p>
+
+</main>
+{% endblock %}
