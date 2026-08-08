@@ -611,7 +611,11 @@ def clients_page(
                 func.count(RequestModel.id),
             )
             .where(
-                RequestModel.client_id.is_not(None)
+                RequestModel.client_id.is_not(None),
+                RequestModel.status == "DELIVERED",
+                RequestModel.result_code == "OK",
+                RequestModel.idcif.is_not(None),
+                RequestModel.idcif != "",
             )
             .group_by(
                 RequestModel.client_id
@@ -3787,7 +3791,11 @@ def providers_page(
                 func.count(RequestModel.id),
             )
             .where(
-                RequestModel.provider_id.is_not(None)
+                RequestModel.provider_id.is_not(None),
+                RequestModel.status == "DELIVERED",
+                RequestModel.result_code == "OK",
+                RequestModel.idcif.is_not(None),
+                RequestModel.idcif != "",
             )
             .group_by(
                 RequestModel.provider_id
