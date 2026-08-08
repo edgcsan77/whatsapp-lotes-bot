@@ -1,0 +1,419 @@
+{% extends "panel/base.html" %}
+
+{% block content %}
+<main class="container">
+
+    <header class="dashboard-header">
+        <div>
+            <h1>Cortes</h1>
+
+            <p>
+                Historial y resumen de los
+                cortes enviados a clientes.
+            </p>
+        </div>
+
+        <a
+            href="/panel/cutoffs"
+            class="button button-secondary"
+        >
+            Actualizar
+        </a>
+    </header>
+
+    <section class="card">
+        <div class="section-heading">
+            <div>
+                <h2>Filtros</h2>
+
+                <p class="muted">
+                    Consulta cortes por cliente,
+                    estado o fecha.
+                </p>
+            </div>
+
+            <a
+                href="/panel/cutoffs"
+                class="button button-secondary"
+            >
+                Limpiar filtros
+            </a>
+        </div>
+
+        <form
+            method="get"
+            action="/panel/cutoffs"
+        >
+            <div class="filter-grid">
+
+                <div>
+                    <label for="cutoff_client">
+                        Cliente
+                    </label>
+
+                    <select
+                        id="cutoff_client"
+                        name="client_id"
+                    >
+                        <option value="">
+                            Todos los clientes
+                        </option>
+
+                        {% for client in clients %}
+                        <option
+                            value="{{ client.id }}"
+                            {% if active_filters.client_id == client.id %}selected{% endif %}
+                        >
+                            {{ client.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label for="cutoff_status">
+                        Estado
+                    </label>
+
+                    <select
+                        id="cutoff_status"
+                        name="status"
+                    >
+                        <option value="">
+                            Todos los estados
+                        </option>
+
+                        {% for cutoff_status in status_options %}
+                        <option
+                            value="{{ cutoff_status }}"
+                            {% if active_filters.status == cutoff_status %}selected{% endif %}
+                        >
+                            {{ cutoff_status|panel_status }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label for="cutoff_from">
+                        Desde
+                    </label>
+
+                    <input
+                        id="cutoff_from"
+                        name="date_from"
+                        type="date"
+                        value="{{ active_filters.date_from }}"
+                    >
+                </div>
+
+                <div>
+                    <label for="cutoff_to">
+                        Hasta
+                    </label>
+
+                    <input
+                        id="cutoff_to"
+                        name="date_to"
+                        type="date"
+                        value="{{ active_filters.date_to }}"
+                    >
+                </div>
+
+                <div class="filter-actions">
+                    <button type="submit">
+                        Aplicar filtros
+                    </button>
+                </div>
+
+            </div>
+        </form>
+
+        <p class="muted filter-note">
+            Las fechas se interpretan con la
+            zona horaria de Ciudad de México.
+        </p>
+    </section>
+
+    <section class="dashboard-stats">
+
+        <article class="metric-card">
+            <div>
+                <div class="metric-label">
+                    Cortes
+                </div>
+
+                <div class="metric-value">
+                    {{ cutoff_summary.cutoffs }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div>
+                <div class="metric-label">
+                    IDCIF
+                </div>
+
+                <div class="metric-value">
+                    {{ cutoff_summary.idcif }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div>
+                <div class="metric-label">
+                    Solicitudes
+                </div>
+
+                <div class="metric-value">
+                    {{ cutoff_summary.requests }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div>
+                <div class="metric-label">
+                    Entregadas
+                </div>
+
+                <div class="metric-value">
+                    {{ cutoff_summary.delivered }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div>
+                <div class="metric-label">
+                    Pendientes
+                </div>
+
+                <div class="metric-value">
+                    {{ cutoff_summary.pending }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div>
+                <div class="metric-label">
+                    Fallidas
+                </div>
+
+                <div class="metric-value">
+                    {{ cutoff_summary.failed }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div>
+                <div class="metric-label">
+                    Importe
+                </div>
+
+                <div class="metric-value metric-money">
+                    ${{ "%.2f"|format(
+                        cutoff_summary.amount
+                    ) }}
+                </div>
+            </div>
+        </article>
+
+    </section>
+
+    <section class="card">
+        <div class="section-heading">
+            <div>
+                <h2>
+                    Historial de cortes
+                </h2>
+
+                <p class="muted">
+                    {{ pagination.total }}
+                    cortes encontrados · Página
+                    {{ pagination.page }}
+                    de
+                    {{ pagination.total_pages }}.
+                </p>
+            </div>
+        </div>
+
+        {% if not cutoffs %}
+        <div class="empty-state">
+            No existen cortes que coincidan
+            con los filtros.
+        </div>
+        {% else %}
+
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Cliente</th>
+                        <th>Período</th>
+                        <th>Solicitudes</th>
+                        <th>IDCIF</th>
+                        <th>Entregadas</th>
+                        <th>Pendientes</th>
+                        <th>Fallidas</th>
+                        <th>Importe</th>
+                        <th>Estado</th>
+                        <th>Enviado</th>
+                        <th>ID mensaje</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                {% for cutoff in cutoffs %}
+                    <tr>
+                        <td>
+                            #{{ cutoff.id }}
+                        </td>
+
+                        <td>
+                            {{
+                                client_names.get(
+                                    cutoff.client_id,
+                                    "Cliente eliminado"
+                                )
+                            }}
+                        </td>
+
+                        <td>
+                            <div>
+                                {{
+                                    cutoff.period_start
+                                    |panel_datetime("%d/%m/%Y %H:%M")
+                                }}
+                            </div>
+
+                            <div class="muted">
+                                hasta
+                                {{
+                                    cutoff.period_end
+                                    |panel_datetime("%d/%m/%Y %H:%M")
+                                }}
+                            </div>
+                        </td>
+
+                        <td>
+                            {{ cutoff.total_requests }}
+                        </td>
+
+                        <td>
+                            <strong>
+                                {{ cutoff.idcif_count }}
+                            </strong>
+                        </td>
+
+                        <td>
+                            {{ cutoff.delivered_count }}
+                        </td>
+
+                        <td>
+                            {{ cutoff.pending_count }}
+                        </td>
+
+                        <td>
+                            {{ cutoff.failed_count }}
+                        </td>
+
+                        <td>
+                            ${{ "%.2f"|format(
+                                cutoff.total_amount
+                            ) }}
+                        </td>
+
+                        <td>
+                            {% if cutoff.status == "SENT" %}
+                            <span class="status status-active">
+                                Enviado
+                            </span>
+
+                            {% elif cutoff.status in [
+                                "FAILED",
+                                "SEND_FAILED"
+                            ] %}
+                            <span class="status status-inactive">
+                                {{ cutoff.status|panel_status }}
+                            </span>
+
+                            {% else %}
+                            <span class="status status-pending">
+                                {{ cutoff.status|panel_status }}
+                            </span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if cutoff.sent_at %}
+                            {{
+                                cutoff.sent_at
+                                |panel_datetime
+                            }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if cutoff.whatsapp_message_id %}
+                            <span class="mono-value">
+                                {{
+                                    cutoff.whatsapp_message_id
+                                }}
+                            </span>
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% endif %}
+    </section>
+
+    {% if pagination.total_pages > 1 %}
+    <nav class="pagination">
+
+        <div class="pagination-info">
+            Página
+            <strong>{{ pagination.page }}</strong>
+            de
+            <strong>{{ pagination.total_pages }}</strong>
+        </div>
+
+        <div class="pagination-actions">
+
+            {% if pagination.page > 1 %}
+            <a
+                class="button button-secondary"
+                href="/panel/cutoffs?{% if filter_query_string %}{{ filter_query_string }}&{% endif %}page={{ pagination.page - 1 }}"
+            >
+                ← Anterior
+            </a>
+            {% endif %}
+
+            {% if pagination.page < pagination.total_pages %}
+            <a
+                class="button button-secondary"
+                href="/panel/cutoffs?{% if filter_query_string %}{{ filter_query_string }}&{% endif %}page={{ pagination.page + 1 }}"
+            >
+                Siguiente →
+            </a>
+            {% endif %}
+
+        </div>
+    </nav>
+    {% endif %}
+
+</main>
+{% endblock %}

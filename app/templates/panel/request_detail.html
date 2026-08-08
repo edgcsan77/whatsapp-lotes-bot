@@ -1,0 +1,507 @@
+{% extends "panel/base.html" %}
+
+{% block content %}
+<main class="container">
+
+    <header class="detail-header">
+        <div>
+            <a
+                href="/panel/operations"
+                class="detail-back"
+            >
+                ← Volver a Operación
+            </a>
+
+            <h1>
+                Solicitud #{{ request_item.id }}
+            </h1>
+
+            <p class="muted">
+                Seguimiento completo de la solicitud.
+            </p>
+        </div>
+
+        <div>
+            {% if request_item.status == "DELIVERED" %}
+            <span class="detail-status detail-status-ok">
+                {{ status_label }}
+            </span>
+
+            {% elif request_item.status in [
+                "CURP_LOOKUP_FAILED",
+                "BATCH_SEND_FAILED",
+                "DELIVERY_FAILED"
+            ] %}
+            <span class="detail-status detail-status-bad">
+                {{ status_label }}
+            </span>
+
+            {% else %}
+            <span class="detail-status detail-status-pending">
+                {{ status_label }}
+            </span>
+            {% endif %}
+        </div>
+    </header>
+
+    <section class="detail-layout">
+
+        <div class="detail-main">
+
+            <section class="card">
+                <h2>
+                    Información general
+                </h2>
+
+                <div class="detail-grid">
+
+                    <div class="detail-field">
+                        <span>Cliente</span>
+                        <strong>
+                            {% if client %}
+                            {{ client.name }}
+                            {% else %}
+                            Cliente eliminado
+                            {% endif %}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Proveedor</span>
+                        <strong>
+                            {% if provider %}
+                            {{ provider.name }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Tipo de entrada</span>
+                        <strong>
+                            {{ request_item.input_type }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Precio</span>
+                        <strong>
+                            ${{ "%.2f"|format(
+                                request_item.sale_price
+                            ) }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>RFC</span>
+                        <strong class="mono-value">
+                            {{ request_item.rfc or "—" }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>CURP original</span>
+                        <strong class="mono-value">
+                            {{
+                                request_item.original_curp
+                                or "—"
+                            }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Nombre detectado</span>
+                        <strong>
+                            {{
+                                request_item.detected_name
+                                or "—"
+                            }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Identificador</span>
+                        <strong class="mono-value">
+                            {{ request_item.identifier_key }}
+                        </strong>
+                    </div>
+
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>
+                    Resultado del proveedor
+                </h2>
+
+                <div class="detail-grid">
+
+                    <div class="detail-field">
+                        <span>Código</span>
+                        <strong>
+                            {{
+                                request_item.result_code
+                                or "—"
+                            }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>IDCIF</span>
+                        <strong class="mono-value">
+                            {{
+                                request_item.idcif
+                                or "—"
+                            }}
+                        </strong>
+                    </div>
+
+                </div>
+
+                <div class="detail-text-block">
+                    <span>
+                        Respuesta completa
+                    </span>
+
+                    <pre>{{
+                        request_item.provider_result
+                        or "Sin respuesta registrada."
+                    }}</pre>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>
+                    Mensaje original
+                </h2>
+
+                <div class="detail-text-block">
+                    <pre>{{ request_item.original_text }}</pre>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>
+                    WhatsApp
+                </h2>
+
+                <div class="detail-grid">
+
+                    <div class="detail-field">
+                        <span>ID del mensaje</span>
+                        <strong class="mono-value">
+                            {{
+                                request_item
+                                .whatsapp_message_id
+                            }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Chat origen</span>
+                        <strong class="mono-value">
+                            {{ request_item.source_jid }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Remitente</span>
+                        <strong>
+                            {{
+                                request_item.sender_name
+                                or "—"
+                            }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>JID remitente</span>
+                        <strong class="mono-value">
+                            {{
+                                request_item.sender_jid
+                                or "—"
+                            }}
+                        </strong>
+                    </div>
+
+                </div>
+            </section>
+
+        </div>
+
+        <aside class="detail-sidebar">
+
+            {% if action_message %}
+            <div
+                class="action-alert
+                {% if action_status == 'success' %}
+                action-alert-success
+                {% else %}
+                action-alert-error
+                {% endif %}"
+            >
+                {{ action_message }}
+            </div>
+            {% endif %}
+
+            <section class="card">
+                <h2>
+                    Acciones administrativas
+                </h2>
+
+                <p class="muted">
+                    Las acciones requieren confirmación
+                    y no alteran precios ni cortes
+                    salvo que recuperen una entrega fallida.
+                </p>
+
+                <div class="admin-actions">
+
+                    {% if (
+                        request_item.provider_result
+                        or request_item.result_code
+                    ) %}
+                    <form
+                        method="post"
+                        action="/panel/requests/{{ request_item.id }}/resend"
+                        onsubmit="return confirm('¿Reenviar este resultado al cliente?');"
+                    >
+                        <input
+                            type="hidden"
+                            name="csrf_token"
+                            value="{{ csrf_token }}"
+                        >
+
+                        <button
+                            type="submit"
+                            class="button-secondary"
+                        >
+                            Reenviar resultado
+                        </button>
+                    </form>
+                    {% endif %}
+
+                    {% if request_item.status == "DELIVERY_FAILED" %}
+                    <form
+                        method="post"
+                        action="/panel/requests/{{ request_item.id }}/retry-delivery"
+                        onsubmit="return confirm('¿Reintentar la entrega de esta solicitud?');"
+                    >
+                        <input
+                            type="hidden"
+                            name="csrf_token"
+                            value="{{ csrf_token }}"
+                        >
+
+                        <button type="submit">
+                            Reintentar entrega
+                        </button>
+                    </form>
+                    {% endif %}
+
+                    {% if request_item.status == "CURP_LOOKUP_FAILED" %}
+                    <form
+                        method="post"
+                        action="/panel/requests/{{ request_item.id }}/retry-curp"
+                        onsubmit="return confirm('¿Programar nuevamente esta CURP para procesamiento?');"
+                    >
+                        <input
+                            type="hidden"
+                            name="csrf_token"
+                            value="{{ csrf_token }}"
+                        >
+
+                        <button type="submit">
+                            Reprocesar CURP
+                        </button>
+                    </form>
+                    {% endif %}
+
+                    {% if not (
+                        request_item.provider_result
+                        or request_item.result_code
+                        or request_item.status
+                            == "DELIVERY_FAILED"
+                        or request_item.status
+                            == "CURP_LOOKUP_FAILED"
+                    ) %}
+                    <p class="muted">
+                        No hay acciones disponibles
+                        para el estado actual.
+                    </p>
+                    {% endif %}
+
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>
+                    Línea de tiempo
+                </h2>
+
+                <div class="timeline">
+                    {% for step in timeline %}
+                    <div
+                        class="timeline-item
+                        {% if step.done %}
+                        timeline-done
+                        {% endif %}"
+                    >
+                        <div class="timeline-marker">
+                            {% if step.done %}
+                            ✓
+                            {% else %}
+                            ○
+                            {% endif %}
+                        </div>
+
+                        <div>
+                            <strong>
+                                {{ step.label }}
+                            </strong>
+
+                            {% if step.time %}
+                            <span>
+                                {{
+                                    step.time
+                                    |panel_datetime
+                                }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>
+                    Lote
+                </h2>
+
+                {% if batch %}
+                <div class="detail-grid detail-grid-single">
+
+                    <div class="detail-field">
+                        <span>ID del lote</span>
+                        <strong>
+                            <a
+                                href="/panel/batches/{{ batch.id }}"
+                                class="table-link"
+                            >
+                                #{{ batch.id }}
+                            </a>
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Posición</span>
+                        <strong>
+                            {{ batch_item.position }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Estado</span>
+                        <strong>
+                            {{ batch.status|panel_status }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Solicitudes</span>
+                        <strong>
+                            {{ batch.request_count }}
+                        </strong>
+                    </div>
+
+                    {% if batch.sent_at %}
+                    <div class="detail-field">
+                        <span>Enviado</span>
+                        <strong>
+                            {{
+                                batch.sent_at
+                                |panel_datetime
+                            }}
+                        </strong>
+                    </div>
+                    {% endif %}
+
+                </div>
+                {% else %}
+                <p class="muted">
+                    Esta solicitud todavía no está
+                    asociada a un lote.
+                </p>
+                {% endif %}
+            </section>
+
+            <section class="card">
+                <h2>
+                    Tiempos
+                </h2>
+
+                <div class="detail-grid detail-grid-single">
+
+                    <div class="detail-field">
+                        <span>Recibida</span>
+                        <strong>
+                            {{
+                                request_item.received_at
+                                |panel_datetime
+                            }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Enviada al proveedor</span>
+                        <strong>
+                            {% if request_item.sent_to_provider_at %}
+                            {{
+                                request_item.sent_to_provider_at
+                                |panel_datetime
+                            }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Respuesta proveedor</span>
+                        <strong>
+                            {% if request_item.provider_replied_at %}
+                            {{
+                                request_item.provider_replied_at
+                                |panel_datetime
+                            }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Entregada</span>
+                        <strong>
+                            {% if request_item.delivered_at %}
+                            {{
+                                request_item.delivered_at
+                                |panel_datetime
+                            }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </strong>
+                    </div>
+
+                </div>
+            </section>
+
+        </aside>
+
+    </section>
+
+</main>
+{% endblock %}

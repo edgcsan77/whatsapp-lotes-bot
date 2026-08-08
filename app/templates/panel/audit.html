@@ -1,0 +1,247 @@
+{% extends "panel/base.html" %}
+
+{% block content %}
+<main class="container">
+
+    <header class="dashboard-header">
+        <div>
+            <h1>Auditoría</h1>
+
+            <p>
+                Registro de acciones administrativas
+                realizadas desde el panel.
+            </p>
+        </div>
+
+        <a
+            href="/panel/audit"
+            class="button button-secondary"
+        >
+            Actualizar
+        </a>
+    </header>
+
+    <section class="card">
+        <div class="section-heading">
+            <div>
+                <h2>Filtros</h2>
+
+                <p class="muted">
+                    Filtra por acción o tipo
+                    de registro.
+                </p>
+            </div>
+
+            <a
+                href="/panel/audit"
+                class="button button-secondary"
+            >
+                Limpiar filtros
+            </a>
+        </div>
+
+        <form
+            method="get"
+            action="/panel/audit"
+        >
+            <div class="filter-grid">
+
+                <div>
+                    <label for="audit_action">
+                        Acción
+                    </label>
+
+                    <select
+                        id="audit_action"
+                        name="action"
+                    >
+                        <option value="">
+                            Todas
+                        </option>
+
+                        {% for option in action_options %}
+                        <option
+                            value="{{ option }}"
+                            {% if active_filters.action == option %}selected{% endif %}
+                        >
+                            {{ option }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label for="audit_entity">
+                        Tipo
+                    </label>
+
+                    <select
+                        id="audit_entity"
+                        name="entity_type"
+                    >
+                        <option value="">
+                            Todos
+                        </option>
+
+                        {% for option in entity_options %}
+                        <option
+                            value="{{ option }}"
+                            {% if active_filters.entity_type == option %}selected{% endif %}
+                        >
+                            {{ option }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="filter-actions">
+                    <button type="submit">
+                        Aplicar filtros
+                    </button>
+                </div>
+
+            </div>
+        </form>
+    </section>
+
+    <section class="card">
+        <div class="section-heading">
+            <div>
+                <h2>
+                    Actividad administrativa
+                </h2>
+
+                <p class="muted">
+                    {{ pagination.total }}
+                    registros encontrados ·
+                    Página
+                    {{ pagination.page }}
+                    de
+                    {{ pagination.total_pages }}.
+                </p>
+            </div>
+        </div>
+
+        {% if not logs %}
+        <div class="empty-state">
+            Todavía no existen registros
+            de auditoría.
+        </div>
+        {% else %}
+
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Administrador</th>
+                        <th>Acción</th>
+                        <th>Tipo</th>
+                        <th>ID</th>
+                        <th>Resumen</th>
+                        <th>Detalles</th>
+                        <th>IP</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                {% for log in logs %}
+                    <tr>
+                        <td>
+                            {{
+                                log.created_at
+                                |panel_datetime
+                            }}
+                        </td>
+
+                        <td>
+                            {{ log.admin_user }}
+                        </td>
+
+                        <td>
+                            <span
+                                class="audit-action"
+                            >
+                                {{ log.action }}
+                            </span>
+                        </td>
+
+                        <td>
+                            {{ log.entity_type }}
+                        </td>
+
+                        <td>
+                            {% if log.entity_id is not none %}
+                            #{{ log.entity_id }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {{ log.summary }}
+                        </td>
+
+                        <td>
+                            {% if log.details %}
+                            <details>
+                                <summary>
+                                    Ver
+                                </summary>
+
+                                <pre class="audit-details">{{
+                                    log.details
+                                }}</pre>
+                            </details>
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+
+                        <td class="mono-value">
+                            {{ log.ip_address or "—" }}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% endif %}
+    </section>
+
+    {% if pagination.total_pages > 1 %}
+    <nav class="pagination">
+        <div class="pagination-info">
+            Página
+            <strong>{{ pagination.page }}</strong>
+            de
+            <strong>{{ pagination.total_pages }}</strong>
+        </div>
+
+        <div class="pagination-actions">
+
+            {% if pagination.page > 1 %}
+            <a
+                class="button button-secondary"
+                href="/panel/audit?{% if filter_query_string %}{{ filter_query_string }}&{% endif %}page={{ pagination.page - 1 }}"
+            >
+                ← Anterior
+            </a>
+            {% endif %}
+
+            {% if pagination.page < pagination.total_pages %}
+            <a
+                class="button button-secondary"
+                href="/panel/audit?{% if filter_query_string %}{{ filter_query_string }}&{% endif %}page={{ pagination.page + 1 }}"
+            >
+                Siguiente →
+            </a>
+            {% endif %}
+
+        </div>
+    </nav>
+    {% endif %}
+
+</main>
+{% endblock %}

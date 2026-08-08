@@ -287,9 +287,8 @@
                                     {{
                                         next_cutoffs[
                                             client.id
-                                        ].strftime(
-                                            "%d/%m/%Y %H:%M"
-                                        )
+                                        ]
+                                        |panel_datetime("%d/%m/%Y %H:%M")
                                     }}
                                 </div>
                                 {% elif not client.daily_cutoff_enabled %}
@@ -410,9 +409,7 @@
                             <div>
                                 {{
                                     cutoff.period_start
-                                    .strftime(
-                                        "%d/%m/%Y %H:%M"
-                                    )
+                                    |panel_datetime("%d/%m/%Y %H:%M")
                                 }}
                             </div>
 
@@ -420,9 +417,7 @@
                                 hasta
                                 {{
                                     cutoff.period_end
-                                    .strftime(
-                                        "%d/%m/%Y %H:%M"
-                                    )
+                                    |panel_datetime("%d/%m/%Y %H:%M")
                                 }}
                             </div>
                         </td>
@@ -444,7 +439,7 @@
                             </span>
                             {% else %}
                             <span class="status">
-                                {{ cutoff.status }}
+                                {{ cutoff.status|panel_status }}
                             </span>
                             {% endif %}
 
@@ -458,9 +453,8 @@
                         <td>
                             {% if cutoff.sent_at %}
                             {{
-                                cutoff.sent_at.strftime(
-                                    "%d/%m/%Y %H:%M"
-                                )
+                                cutoff.sent_at
+                                |panel_datetime("%d/%m/%Y %H:%M")
                             }}
                             {% else %}
                             —

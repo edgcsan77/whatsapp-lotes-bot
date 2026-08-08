@@ -75,7 +75,7 @@
                             value="{{ request_status }}"
                             {% if active_filters.status == request_status %}selected{% endif %}
                         >
-                            {{ request_status }}
+                            {{ request_status|panel_status }}
                         </option>
                         {% endfor %}
                     </select>
@@ -167,7 +167,7 @@
 
         <p class="muted filter-note">
             Las fechas se interpretan con la zona
-            horaria de Reynosa / Matamoros.
+            horaria de Ciudad de México.
         </p>
     </section>
 
@@ -213,8 +213,12 @@
         <h2>Solicitudes recientes</h2>
 
         <p class="muted">
-            Se muestran hasta 100 solicitudes
-            que coinciden con los filtros actuales.
+            {{ request_pagination.total }}
+            solicitudes coinciden con los filtros.
+            Página
+            {{ request_pagination.page }}
+            de
+            {{ request_pagination.total_pages }}.
         </p>
 
         {% if not recent_requests %}
@@ -241,7 +245,14 @@
                 <tbody>
                 {% for item in recent_requests %}
                     <tr>
-                        <td>#{{ item.id }}</td>
+                        <td>
+                            <a
+                                href="/panel/requests/{{ item.id }}"
+                                class="table-link"
+                            >
+                                #{{ item.id }}
+                            </a>
+                        </td>
 
                         <td>
                             {{
@@ -294,11 +305,11 @@
                                 "DELIVERY_FAILED"
                             ] %}
                             <span class="status status-inactive">
-                                {{ item.status }}
+                                {{ item.status|panel_status }}
                             </span>
                             {% else %}
                             <span class="status status-pending">
-                                {{ item.status }}
+                                {{ item.status|panel_status }}
                             </span>
                             {% endif %}
                         </td>
@@ -321,18 +332,16 @@
 
                         <td>
                             {{
-                                item.received_at.strftime(
-                                    "%d/%m/%Y %H:%M:%S"
-                                )
+                                item.received_at
+                                |panel_datetime
                             }}
                         </td>
 
                         <td>
                             {% if item.delivered_at %}
                             {{
-                                item.delivered_at.strftime(
-                                    "%d/%m/%Y %H:%M:%S"
-                                )
+                                item.delivered_at
+                                |panel_datetime
                             }}
                             {% else %}
                             —
@@ -346,11 +355,49 @@
         {% endif %}
     </section>
 
+    {% if request_pagination.total_pages > 1 %}
+    <nav class="pagination">
+        <div class="pagination-info">
+            Página
+            <strong>{{ request_pagination.page }}</strong>
+            de
+            <strong>{{ request_pagination.total_pages }}</strong>
+        </div>
+
+        <div class="pagination-actions">
+
+            {% if request_pagination.page > 1 %}
+            <a
+                class="button button-secondary"
+                href="/panel/operations?{% if filter_query_string %}{{ filter_query_string }}&{% endif %}page={{ request_pagination.page - 1 }}&batch_page={{ batch_pagination.page }}"
+            >
+                ← Anterior
+            </a>
+            {% endif %}
+
+            {% if request_pagination.page < request_pagination.total_pages %}
+            <a
+                class="button button-secondary"
+                href="/panel/operations?{% if filter_query_string %}{{ filter_query_string }}&{% endif %}page={{ request_pagination.page + 1 }}&batch_page={{ batch_pagination.page }}"
+            >
+                Siguiente →
+            </a>
+            {% endif %}
+
+        </div>
+    </nav>
+    {% endif %}
+
     <section class="card">
         <h2>Lotes recientes</h2>
 
         <p class="muted">
-            Últimos 50 lotes creados.
+            {{ batch_pagination.total }}
+            lotes registrados.
+            Página
+            {{ batch_pagination.page }}
+            de
+            {{ batch_pagination.total_pages }}.
         </p>
 
         {% if not recent_batches %}
@@ -376,7 +423,14 @@
                 <tbody>
                 {% for batch in recent_batches %}
                     <tr>
-                        <td>#{{ batch.id }}</td>
+                        <td>
+                            <a
+                                href="/panel/batches/{{ batch.id }}"
+                                class="table-link"
+                            >
+                                #{{ batch.id }}
+                            </a>
+                        </td>
 
                         <td>
                             {% if batch.client_id %}
@@ -415,25 +469,23 @@
                             </span>
                             {% else %}
                             <span class="status status-pending">
-                                {{ batch.status }}
+                                {{ batch.status|panel_status }}
                             </span>
                             {% endif %}
                         </td>
 
                         <td>
                             {{
-                                batch.created_at.strftime(
-                                    "%d/%m/%Y %H:%M:%S"
-                                )
+                                batch.created_at
+                                |panel_datetime
                             }}
                         </td>
 
                         <td>
                             {% if batch.sent_at %}
                             {{
-                                batch.sent_at.strftime(
-                                    "%d/%m/%Y %H:%M:%S"
-                                )
+                                batch.sent_at
+                                |panel_datetime
                             }}
                             {% else %}
                             —
@@ -457,4 +509,37 @@
         {% endif %}
     </section>
 </main>
+    {% if batch_pagination.total_pages > 1 %}
+    <nav class="pagination">
+        <div class="pagination-info">
+            Página
+            <strong>{{ batch_pagination.page }}</strong>
+            de
+            <strong>{{ batch_pagination.total_pages }}</strong>
+        </div>
+
+        <div class="pagination-actions">
+
+            {% if batch_pagination.page > 1 %}
+            <a
+                class="button button-secondary"
+                href="/panel/operations?{% if filter_query_string %}{{ filter_query_string }}&{% endif %}page={{ request_pagination.page }}&batch_page={{ batch_pagination.page - 1 }}"
+            >
+                ← Anterior
+            </a>
+            {% endif %}
+
+            {% if batch_pagination.page < batch_pagination.total_pages %}
+            <a
+                class="button button-secondary"
+                href="/panel/operations?{% if filter_query_string %}{{ filter_query_string }}&{% endif %}page={{ request_pagination.page }}&batch_page={{ batch_pagination.page + 1 }}"
+            >
+                Siguiente →
+            </a>
+            {% endif %}
+
+        </div>
+    </nav>
+    {% endif %}
+
 {% endblock %}

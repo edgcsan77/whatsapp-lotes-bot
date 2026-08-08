@@ -1,0 +1,376 @@
+{% extends "panel/base.html" %}
+
+{% block content %}
+<main class="container">
+
+    <header class="detail-header">
+        <div>
+            <a
+                href="/panel/operations"
+                class="detail-back"
+            >
+                ← Volver a Operación
+            </a>
+
+            <h1>
+                Lote #{{ batch.id }}
+            </h1>
+
+            <p class="muted">
+                Detalle completo del lote enviado
+                al proveedor.
+            </p>
+        </div>
+
+        <div>
+            {% if batch.status == "SENT" %}
+            <span class="detail-status detail-status-ok">
+                {{ batch_status_label }}
+            </span>
+
+            {% elif batch.status in [
+                "FAILED",
+                "BATCH_SEND_FAILED"
+            ] %}
+            <span class="detail-status detail-status-bad">
+                {{ batch_status_label }}
+            </span>
+
+            {% else %}
+            <span class="detail-status detail-status-pending">
+                {{ batch_status_label }}
+            </span>
+            {% endif %}
+        </div>
+    </header>
+
+    <section class="dashboard-stats">
+
+        <article class="metric-card">
+            <div>
+                <div class="metric-label">
+                    Solicitudes
+                </div>
+
+                <div class="metric-value">
+                    {{ batch.request_count }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div>
+                <div class="metric-label">
+                    Entregadas
+                </div>
+
+                <div class="metric-value">
+                    {{ delivered_count }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div>
+                <div class="metric-label">
+                    Pendientes
+                </div>
+
+                <div class="metric-value">
+                    {{ pending_count }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div>
+                <div class="metric-label">
+                    Fallidas
+                </div>
+
+                <div class="metric-value">
+                    {{ failed_count }}
+                </div>
+            </div>
+        </article>
+
+    </section>
+
+    <section class="detail-layout">
+
+        <div class="detail-main">
+
+            <section class="card">
+                <h2>
+                    Solicitudes del lote
+                </h2>
+
+                <p class="muted">
+                    Orden original enviado al proveedor.
+                </p>
+
+                {% if not batch_requests %}
+                <p class="muted">
+                    No hay solicitudes asociadas
+                    a este lote.
+                </p>
+                {% else %}
+
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Pos.</th>
+                                <th>Solicitud</th>
+                                <th>Entrada</th>
+                                <th>RFC / CURP</th>
+                                <th>Estado</th>
+                                <th>Resultado</th>
+                                <th>IDCIF</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                        {% for row in batch_requests %}
+                            {% set item = row.request %}
+
+                            <tr>
+                                <td>
+                                    {{ row.position }}
+                                </td>
+
+                                <td>
+                                    <a
+                                        href="/panel/requests/{{ item.id }}"
+                                        class="table-link"
+                                    >
+                                        #{{ item.id }}
+                                    </a>
+                                </td>
+
+                                <td>
+                                    {{ item.input_type }}
+                                </td>
+
+                                <td>
+                                    {% if item.rfc %}
+                                    <strong>
+                                        {{ item.rfc }}
+                                    </strong>
+                                    {% endif %}
+
+                                    {% if item.original_curp %}
+                                    <div class="muted">
+                                        {{ item.original_curp }}
+                                    </div>
+                                    {% endif %}
+                                </td>
+
+                                <td>
+                                    {% if item.status == "DELIVERED" %}
+                                    <span class="status status-active">
+                                        Entregada
+                                    </span>
+
+                                    {% elif item.status in [
+                                        "CURP_LOOKUP_FAILED",
+                                        "BATCH_SEND_FAILED",
+                                        "DELIVERY_FAILED"
+                                    ] %}
+                                    <span class="status status-inactive">
+                                        {{ item.status|panel_status }}
+                                    </span>
+
+                                    {% else %}
+                                    <span class="status status-pending">
+                                        {{ item.status|panel_status }}
+                                    </span>
+                                    {% endif %}
+                                </td>
+
+                                <td>
+                                    {{
+                                        item.result_code
+                                        or "—"
+                                    }}
+                                </td>
+
+                                <td>
+                                    {{
+                                        item.idcif
+                                        or "—"
+                                    }}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                {% endif %}
+            </section>
+
+            <section class="card">
+                <h2>
+                    Texto enviado al proveedor
+                </h2>
+
+                <div class="detail-text-block">
+                    <pre>{{
+                        batch.outbound_text
+                        or "No hay texto registrado."
+                    }}</pre>
+                </div>
+            </section>
+
+        </div>
+
+        <aside class="detail-sidebar">
+
+            {% if action_message %}
+            <div
+                class="action-alert
+                {% if action_status == 'success' %}
+                action-alert-success
+                {% else %}
+                action-alert-error
+                {% endif %}"
+            >
+                {{ action_message }}
+            </div>
+            {% endif %}
+
+            {% if batch.status == "SEND_FAILED" %}
+            <section class="card">
+                <h2>
+                    Acciones administrativas
+                </h2>
+
+                <form
+                    method="post"
+                    action="/panel/batches/{{ batch.id }}/retry"
+                    onsubmit="return confirm('¿Reintentar el envío completo de este lote?');"
+                >
+                    <input
+                        type="hidden"
+                        name="csrf_token"
+                        value="{{ csrf_token }}"
+                    >
+
+                    <button type="submit">
+                        Reintentar lote
+                    </button>
+                </form>
+            </section>
+            {% endif %}
+
+            <section class="card">
+                <h2>
+                    Información del lote
+                </h2>
+
+                <div class="detail-grid detail-grid-single">
+
+                    <div class="detail-field">
+                        <span>Cliente</span>
+                        <strong>
+                            {% if client %}
+                            {{ client.name }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Proveedor</span>
+                        <strong>
+                            {% if provider %}
+                            {{ provider.name }}
+                            {% else %}
+                            Proveedor eliminado
+                            {% endif %}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Estado</span>
+                        <strong>
+                            {{ batch_status_label }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Solicitudes</span>
+                        <strong>
+                            {{ batch.request_count }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>ID mensaje proveedor</span>
+                        <strong class="mono-value">
+                            {{
+                                batch.provider_message_id
+                                or "—"
+                            }}
+                        </strong>
+                    </div>
+
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>
+                    Tiempos
+                </h2>
+
+                <div class="detail-grid detail-grid-single">
+
+                    <div class="detail-field">
+                        <span>Creado</span>
+                        <strong>
+                            {{
+                                batch.created_at
+                                |panel_datetime
+                            }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Enviado</span>
+                        <strong>
+                            {% if batch.sent_at %}
+                            {{
+                                batch.sent_at
+                                |panel_datetime
+                            }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Cerrado</span>
+                        <strong>
+                            {% if batch.closed_at %}
+                            {{
+                                batch.closed_at
+                                |panel_datetime
+                            }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </strong>
+                    </div>
+
+                </div>
+            </section>
+
+        </aside>
+
+    </section>
+
+</main>
+{% endblock %}

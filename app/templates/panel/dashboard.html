@@ -1,0 +1,415 @@
+{% extends "panel/base.html" %}
+
+{% block content %}
+<main class="container">
+    <header class="dashboard-header">
+        <div>
+            <h1>Dashboard</h1>
+
+            <p>
+                {{ range_label }}
+                · {{ dashboard_timezone }}
+            </p>
+        </div>
+
+        <div class="dashboard-range-actions">
+            <a
+                href="/panel/dashboard?range=today"
+                class="range-button {% if selected_range == 'today' %}range-button-active{% endif %}"
+            >
+                Hoy
+            </a>
+
+            <a
+                href="/panel/dashboard?range=yesterday"
+                class="range-button {% if selected_range == 'yesterday' %}range-button-active{% endif %}"
+            >
+                Ayer
+            </a>
+
+            <a
+                href="/panel/dashboard?range=7d"
+                class="range-button {% if selected_range == '7d' %}range-button-active{% endif %}"
+            >
+                7 días
+            </a>
+
+            <a
+                href="/panel/dashboard?range=month"
+                class="range-button {% if selected_range == 'month' %}range-button-active{% endif %}"
+            >
+                Mes
+            </a>
+        </div>
+    </header>
+
+    <section class="dashboard-stats">
+        <article class="metric-card">
+            <div class="metric-icon">
+                📥
+            </div>
+
+            <div>
+                <div class="metric-label">
+                    Solicitudes
+                </div>
+
+                <div class="metric-value">
+                    {{ dashboard_stats.requests }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div class="metric-icon">
+                📄
+            </div>
+
+            <div>
+                <div class="metric-label">
+                    IDCIF válidos
+                </div>
+
+                <div class="metric-value">
+                    {{ dashboard_stats.idcif }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div class="metric-icon">
+                ✅
+            </div>
+
+            <div>
+                <div class="metric-label">
+                    Entregadas
+                </div>
+
+                <div class="metric-value">
+                    {{ dashboard_stats.delivered }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div class="metric-icon">
+                ⏳
+            </div>
+
+            <div>
+                <div class="metric-label">
+                    Pendientes
+                </div>
+
+                <div class="metric-value">
+                    {{ dashboard_stats.pending }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div class="metric-icon">
+                ⚠️
+            </div>
+
+            <div>
+                <div class="metric-label">
+                    Fallidas
+                </div>
+
+                <div class="metric-value">
+                    {{ dashboard_stats.failed }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div class="metric-icon">
+                💰
+            </div>
+
+            <div>
+                <div class="metric-label">
+                    Importe entregado
+                </div>
+
+                <div class="metric-value metric-money">
+                    ${{ "%.2f"|format(
+                        dashboard_stats.amount
+                    ) }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div class="metric-icon">
+                📦
+            </div>
+
+            <div>
+                <div class="metric-label">
+                    Lotes enviados
+                </div>
+
+                <div class="metric-value">
+                    {{ dashboard_stats.batches }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div class="metric-icon">
+                ⏱️
+            </div>
+
+            <div>
+                <div class="metric-label">
+                    Tiempo promedio
+                </div>
+
+                <div class="metric-value metric-small">
+                    {{
+                        dashboard_stats
+                        .average_delivery
+                    }}
+                </div>
+            </div>
+        </article>
+    </section>
+
+    <section class="dashboard-chart-grid">
+
+        <article class="card dashboard-chart-card">
+            <div class="section-heading">
+                <div>
+                    <h2>
+                        Solicitudes por día
+                    </h2>
+
+                    <p class="muted">
+                        Solicitudes recibidas durante
+                        el período seleccionado.
+                    </p>
+                </div>
+            </div>
+
+            <div class="bar-chart">
+                {% for point in request_chart %}
+                <div class="bar-column">
+                    <div class="bar-value">
+                        {{ point.value }}
+                    </div>
+
+                    <div class="bar-track">
+                        <div
+                            class="bar-fill"
+                            style="height: {{ point.height }}%;"
+                            title="{{ point.label }} · {{ point.value }}"
+                        ></div>
+                    </div>
+
+                    <div class="bar-label">
+                        {{ point.label }}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </article>
+
+        <article class="card dashboard-chart-card">
+            <div class="section-heading">
+                <div>
+                    <h2>
+                        IDCIF por día
+                    </h2>
+
+                    <p class="muted">
+                        Resultados válidos entregados
+                        durante el período.
+                    </p>
+                </div>
+            </div>
+
+            <div class="bar-chart">
+                {% for point in idcif_chart %}
+                <div class="bar-column">
+                    <div class="bar-value">
+                        {{ point.value }}
+                    </div>
+
+                    <div class="bar-track">
+                        <div
+                            class="bar-fill bar-fill-secondary"
+                            style="height: {{ point.height }}%;"
+                            title="{{ point.label }} · {{ point.value }}"
+                        ></div>
+                    </div>
+
+                    <div class="bar-label">
+                        {{ point.label }}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </article>
+
+    </section>
+
+    <section class="dashboard-columns">
+        <article class="card">
+            <div class="section-heading">
+                <div>
+                    <h2>
+                        Solicitudes recientes
+                    </h2>
+
+                    <p class="muted">
+                        Últimas solicitudes
+                        del período.
+                    </p>
+                </div>
+
+                <a
+                    href="/panel/operations"
+                    class="button button-secondary"
+                >
+                    Ver operación
+                </a>
+            </div>
+
+            {% if not recent_requests %}
+            <div class="empty-state">
+                No hay solicitudes hoy.
+            </div>
+            {% else %}
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Cliente</th>
+                            <th>RFC / CURP</th>
+                            <th>Estado</th>
+                            <th>Hora</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                    {% for item in recent_requests %}
+                        <tr>
+                            <td>
+                                #{{ item.id }}
+                            </td>
+
+                            <td>
+                                {{
+                                    client_names.get(
+                                        item.client_id,
+                                        "—"
+                                    )
+                                }}
+                            </td>
+
+                            <td>
+                                <strong>
+                                    {{
+                                        item.rfc
+                                        or item.original_curp
+                                        or item.identifier_key
+                                    }}
+                                </strong>
+                            </td>
+
+                            <td>
+                                {% if item.status == "DELIVERED" %}
+                                <span class="status status-active">
+                                    Entregada
+                                </span>
+
+                                {% elif item.status == "CURP_LOOKUP_FAILED" %}
+                                <span class="status status-inactive">
+                                    Fallida
+                                </span>
+
+                                {% else %}
+                                <span class="status status-pending">
+                                    {{ item.status|panel_status }}
+                                </span>
+                                {% endif %}
+                            </td>
+
+                            <td>
+                                {{
+                                    item.received_at
+                                    |panel_datetime("%H:%M:%S")
+                                }}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </article>
+
+        <article class="card">
+            <div class="section-heading">
+                <div>
+                    <h2>
+                        Últimos cortes
+                    </h2>
+
+                    <p class="muted">
+                        Cortes enviados recientemente.
+                    </p>
+                </div>
+            </div>
+
+            {% if not recent_cutoffs %}
+            <div class="empty-state">
+                Todavía no existen cortes.
+            </div>
+            {% else %}
+            <div class="cutoff-list">
+                {% for cutoff in recent_cutoffs %}
+                <div class="cutoff-item">
+                    <div>
+                        <strong>
+                            {{
+                                client_names.get(
+                                    cutoff.client_id,
+                                    "Cliente"
+                                )
+                            }}
+                        </strong>
+
+                        <div class="muted">
+                            {% if cutoff.sent_at %}
+                            {{
+                                cutoff.sent_at
+                                |panel_datetime("%d/%m/%Y %H:%M")
+                            }}
+                            {% else %}
+                            Sin enviar
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="cutoff-total">
+                        <span>
+                            IDCIF
+                        </span>
+
+                        <strong>
+                            {{ cutoff.idcif_count }}
+                        </strong>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </article>
+    </section>
+</main>
+{% endblock %}
