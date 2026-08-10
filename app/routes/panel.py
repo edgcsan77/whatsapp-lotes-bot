@@ -1,3 +1,4 @@
+import logging
 import subprocess
 import hashlib
 import hmac
@@ -16,6 +17,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models.batch import Batch, BatchItem
 from app.models.admin_audit_log import AdminAuditLog
@@ -26,6 +28,8 @@ from app.models.request import Request as RequestModel
 
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 from app.integrations.evolution_client import (
@@ -38,6 +42,14 @@ from app.services.batch_service import (
 )
 from app.services.curp_processing_service import (
     clear_curp_retry_state,
+)
+from app.services.curp_rfc_engine import (
+    CurpRfcError,
+    convert_curp_to_rfc,
+)
+from app.services.message_parser import (
+    extract_curps,
+    normalize_text,
 )
 from app.services.retry_service import (
     build_delivery_retry_text,
@@ -3703,6 +3715,418 @@ def operations_page(
             "filter_query_string":
                 filter_query_string,
         },
+    )
+
+
+
+
+@router.get(
+    "/curp-rfc",
+    response_class=HTMLResponse,
+)
+def curp_rfc_page(
+    request: Request,
+):
+    redirect = require_authenticated(
+        request
+    )
+
+    if redirect:
+        return redirect
+
+    return templates.TemplateResponse(
+        request=request,
+        name="panel/curp_rfc.html",
+        context={
+            "request": request,
+            "title": "Convertidor CURP → RFC",
+            "active_page": "curp_rfc",
+            "csrf_token":
+                ensure_csrf_token(request),
+            "curp_value": "",
+            "rfc_result": None,
+            "error": None,
+        },
+    )
+
+
+@router.post(
+    "/curp-rfc",
+    response_class=HTMLResponse,
+)
+def curp_rfc_convert(
+    request: Request,
+    curp: str = Form(...),
+    csrf_token: str = Form(...),
+):
+    redirect = require_authenticated(
+        request
+    )
+
+    if redirect:
+        return redirect
+
+    normalized_curp = normalize_text(
+        curp
+    ).replace(" ", "")
+
+    context = {
+        "request": request,
+        "title": "Convertidor CURP → RFC",
+        "active_page": "curp_rfc",
+        "csrf_token":
+            ensure_csrf_token(request),
+        "curp_value": normalized_curp,
+        "rfc_result": None,
+        "error": None,
+    }
+
+    if not validate_csrf(
+        request,
+        csrf_token,
+    ):
+        context["error"] = (
+            "Token de seguridad inválido. "
+            "Actualiza la página e intenta nuevamente."
+        )
+
+        return templates.TemplateResponse(
+            request=request,
+            name="panel/curp_rfc.html",
+            context=context,
+            status_code=400,
+        )
+
+    detected_curps = extract_curps(
+        normalized_curp
+    )
+
+    if (
+        len(detected_curps) != 1
+        or detected_curps[0]
+        != normalized_curp
+    ):
+        context["error"] = (
+            "Ingresa una CURP válida "
+            "de 18 caracteres."
+        )
+
+        return templates.TemplateResponse(
+            request=request,
+            name="panel/curp_rfc.html",
+            context=context,
+            status_code=400,
+        )
+
+    try:
+        rfc, _person_data = (
+            convert_curp_to_rfc(
+                normalized_curp
+            )
+        )
+
+        context["rfc_result"] = str(
+            rfc or ""
+        ).strip().upper()
+
+        if not context["rfc_result"]:
+            context["error"] = (
+                "No fue posible obtener "
+                "el RFC para esa CURP."
+            )
+
+    except CurpRfcError as error:
+        error_text = str(error)
+
+        if (
+            "La CURP no se encuentra "
+            "en la base de datos"
+            in error_text
+        ):
+            context["error"] = (
+                "La CURP no se encuentra "
+                "en la base de datos."
+            )
+
+        else:
+            context["error"] = (
+                "No fue posible obtener "
+                "el RFC para esa CURP."
+            )
+
+    except Exception as error:
+        logger.exception(
+            "Error en convertidor CURP->RFC "
+            "curp=%s error=%s",
+            normalized_curp,
+            error,
+        )
+
+        context["error"] = (
+            "El servicio tuvo un error temporal. "
+            "Intenta nuevamente."
+        )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="panel/curp_rfc.html",
+        context=context,
+    )
+
+
+@router.get(
+    "/messages",
+    response_class=HTMLResponse,
+)
+def messages_page(
+    request: Request,
+    message: str | None = None,
+    error: str | None = None,
+):
+    redirect = require_authenticated(
+        request
+    )
+
+    if redirect:
+        return redirect
+
+    return templates.TemplateResponse(
+        request=request,
+        name="panel/messages.html",
+        context={
+            "request": request,
+            "title": "Mensajes",
+            "active_page": "messages",
+            "csrf_token":
+                ensure_csrf_token(request),
+            "message": message,
+            "error": error,
+        },
+    )
+
+
+@router.post("/messages/send")
+async def send_mass_message(
+    request: Request,
+    target_type: str = Form(...),
+    broadcast_message: str = Form(...),
+    csrf_token: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    redirect = require_authenticated(
+        request
+    )
+
+    if redirect:
+        return redirect
+
+    if not validate_csrf(
+        request,
+        csrf_token,
+    ):
+        return RedirectResponse(
+            url=(
+                "/panel/messages?"
+                "error="
+                + quote(
+                    "Token de seguridad inválido."
+                )
+            ),
+            status_code=303,
+        )
+
+    normalized_target = str(
+        target_type or ""
+    ).strip().lower()
+
+    if normalized_target not in {
+        "all",
+        "group",
+        "private",
+    }:
+        return RedirectResponse(
+            url=(
+                "/panel/messages?"
+                "error="
+                + quote(
+                    "Tipo de destinatario inválido."
+                )
+            ),
+            status_code=303,
+        )
+
+    text_message = str(
+        broadcast_message or ""
+    ).strip()
+
+    if not text_message:
+        return RedirectResponse(
+            url=(
+                "/panel/messages?"
+                "error="
+                + quote(
+                    "El mensaje no puede estar vacío."
+                )
+            ),
+            status_code=303,
+        )
+
+    if len(text_message) > 4096:
+        return RedirectResponse(
+            url=(
+                "/panel/messages?"
+                "error="
+                + quote(
+                    "El mensaje supera los 4096 caracteres."
+                )
+            ),
+            status_code=303,
+        )
+
+    conditions = [
+        Client.active.is_(True),
+        Client.deleted_at.is_(None),
+    ]
+
+    if normalized_target == "group":
+        conditions.append(
+            Client.source_type == "group"
+        )
+
+    elif normalized_target == "private":
+        conditions.append(
+            Client.source_type == "private"
+        )
+
+    clients = list(
+        db.scalars(
+            select(Client)
+            .where(*conditions)
+            .order_by(Client.id.asc())
+        )
+    )
+
+    # Evitamos enviar dos veces si por alguna
+    # razón hubiera JIDs repetidos.
+    recipients: list[Client] = []
+    seen_jids: set[str] = set()
+
+    for client in clients:
+        jid = str(
+            client.whatsapp_jid or ""
+        ).strip()
+
+        if not jid:
+            continue
+
+        if jid in seen_jids:
+            continue
+
+        seen_jids.add(jid)
+        recipients.append(client)
+
+    if not recipients:
+        return RedirectResponse(
+            url=(
+                "/panel/messages?"
+                "error="
+                + quote(
+                    "No hay destinatarios activos "
+                    "para esa selección."
+                )
+            ),
+            status_code=303,
+        )
+
+    sent_count = 0
+    failed_count = 0
+    failed_clients: list[str] = []
+
+    for client in recipients:
+        try:
+            result = await send_text_message(
+                destination_jid=
+                    client.whatsapp_jid,
+                text=text_message,
+                instance=
+                    settings.evolution_instance,
+            )
+
+            if result.ok:
+                sent_count += 1
+            else:
+                failed_count += 1
+                failed_clients.append(
+                    client.name
+                )
+
+        except (
+            EvolutionAPIError,
+            ValueError,
+        ):
+            failed_count += 1
+            failed_clients.append(
+                client.name
+            )
+
+            logger.exception(
+                "Falló mensaje masivo "
+                "client_id=%s jid=%s",
+                client.id,
+                client.whatsapp_jid,
+            )
+
+    target_labels = {
+        "all": "Todos",
+        "group": "Grupos",
+        "private": "Chats privados",
+    }
+
+    details = (
+        f"Destino: "
+        f"{target_labels[normalized_target]}\n"
+        f"Destinatarios: {len(recipients)}\n"
+        f"Enviados: {sent_count}\n"
+        f"Fallidos: {failed_count}"
+    )
+
+    if failed_clients:
+        details += (
+            "\nFallidos: "
+            + ", ".join(
+                failed_clients[:50]
+            )
+        )
+
+    register_admin_audit(
+        db,
+        request,
+        action="BROADCAST_SENT",
+        entity_type="BROADCAST",
+        entity_id=None,
+        summary=(
+            "Mensaje masivo enviado: "
+            f"{sent_count} correctos, "
+            f"{failed_count} fallidos"
+        ),
+        details=details,
+    )
+
+    db.commit()
+
+    result_message = (
+        "Envío terminado. "
+        f"Enviados: {sent_count}. "
+        f"Fallidos: {failed_count}."
+    )
+
+    return RedirectResponse(
+        url=(
+            "/panel/messages?"
+            "message="
+            + quote(result_message)
+        ),
+        status_code=303,
     )
 
 

@@ -1079,7 +1079,83 @@
             color: #fff;
         }
 
-    </style>
+    
+        /* Menú desplegable Más */
+        .nav-more {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .nav-more-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            min-height: 38px;
+            padding: 9px 12px;
+            border: 0;
+            border-radius: 8px;
+            background: transparent;
+            color: var(--muted);
+            font: inherit;
+            cursor: pointer;
+        }
+
+        .nav-more-button:hover,
+        .nav-more-button.active,
+        .nav-more.open .nav-more-button {
+            background: rgba(255, 255, 255, .06);
+            color: var(--text);
+        }
+
+        .nav-more-arrow {
+            font-size: 10px;
+            transition: transform .15s ease;
+        }
+
+        .nav-more.open .nav-more-arrow {
+            transform: rotate(180deg);
+        }
+
+        .nav-more-menu {
+            display: none;
+            position: absolute;
+            z-index: 3000;
+            top: calc(100% + 8px);
+            right: 0;
+            min-width: 180px;
+            padding: 7px;
+            border: 1px solid var(--border);
+            border-radius: 11px;
+            background: var(--surface);
+            box-shadow:
+                0 18px 40px
+                rgba(0, 0, 0, .35);
+        }
+
+        .nav-more.open .nav-more-menu {
+            display: block;
+        }
+
+        .nav-more-menu a {
+            display: block;
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            white-space: nowrap;
+            color: var(--muted);
+            text-align: left;
+        }
+
+        .nav-more-menu a:hover,
+        .nav-more-menu a.active {
+            background:
+                rgba(255, 255, 255, .06);
+            color: var(--text);
+        }
+
+</style>
 </head>
 
 <body>
@@ -1103,13 +1179,6 @@
         </a>
 
         <a
-            href="/panel/providers"
-            class="{% if active_page == 'providers' %}active{% endif %}"
-        >
-            Proveedores
-        </a>
-
-        <a
             href="/panel/operations"
             class="{% if active_page == 'operations' %}active{% endif %}"
         >
@@ -1117,25 +1186,59 @@
         </a>
 
         <a
-            href="/panel/cutoffs"
-            class="{% if active_page == 'cutoffs' %}active{% endif %}"
+            href="/panel/messages"
+            class="{% if active_page == 'messages' %}active{% endif %}"
         >
-            Cortes
+            Mensajes
         </a>
 
-        <a
-            href="/panel/audit"
-            class="{% if active_page == 'audit' %}active{% endif %}"
-        >
-            Auditoría
-        </a>
+        <div class="nav-more">
+            <button
+                type="button"
+                class="nav-more-button {% if active_page in ['providers', 'curp_rfc', 'cutoffs', 'audit', 'system'] %}active{% endif %}"
+                onclick="this.parentElement.classList.toggle('open')"
+            >
+                Más
+                <span class="nav-more-arrow">▾</span>
+            </button>
 
-        <a
-            href="/panel/system"
-            class="{% if active_page == 'system' %}active{% endif %}"
-        >
-            Sistema
-        </a>
+            <div class="nav-more-menu">
+                <a
+                    href="/panel/providers"
+                    class="{% if active_page == 'providers' %}active{% endif %}"
+                >
+                    Proveedores
+                </a>
+
+                <a
+                    href="/panel/curp-rfc"
+                    class="{% if active_page == 'curp_rfc' %}active{% endif %}"
+                >
+                    CURP → RFC
+                </a>
+
+                <a
+                    href="/panel/cutoffs"
+                    class="{% if active_page == 'cutoffs' %}active{% endif %}"
+                >
+                    Cortes
+                </a>
+
+                <a
+                    href="/panel/audit"
+                    class="{% if active_page == 'audit' %}active{% endif %}"
+                >
+                    Auditoría
+                </a>
+
+                <a
+                    href="/panel/system"
+                    class="{% if active_page == 'system' %}active{% endif %}"
+                >
+                    Sistema
+                </a>
+            </div>
+        </div>
 
         <a
             href="/panel/logout"
