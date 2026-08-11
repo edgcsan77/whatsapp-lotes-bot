@@ -114,7 +114,7 @@ def test_register_curp_pending_lookup(
     assert request.status == "PENDING_CURP_LOOKUP"
 
 
-def test_rfc_has_priority_over_curp(
+def test_rfc_and_curp_are_both_registered(
     db: Session,
 ) -> None:
     client = create_client(db)
@@ -133,20 +133,29 @@ def test_rfc_has_priority_over_curp(
         ),
     )
 
-    assert result.created_count == 1
-    assert result.ignored_curps == [
-        "TOFL980825MJCVLZ04"
-    ]
+    assert result.created_count == 2
+    assert result.ignored_curps == []
 
     requests = list(
         db.scalars(
             select(Request)
+            .order_by(Request.id)
         )
     )
 
-    assert len(requests) == 1
-    assert requests[0].rfc == "TOFL980825ABC"
-    assert requests[0].original_curp is None
+    assert len(requests) == 2
+
+    assert requests[0].rfc == (
+        "TOFL980825ABC"
+    )
+
+    assert requests[1].original_curp == (
+        "TOFL980825MJCVLZ04"
+    )
+
+    assert requests[1].status == (
+        "PENDING_CURP_LOOKUP"
+    )
 
 
 def test_multiple_rfcs_in_same_message(

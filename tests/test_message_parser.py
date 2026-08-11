@@ -47,7 +47,7 @@ def test_name_before_curp() -> None:
     assert parsed[0].detected_name == "LIZBETH JAQUELINE TOVAR FLORES"
 
 
-def test_rfc_has_priority_over_curp() -> None:
+def test_rfc_and_curp_are_both_parsed() -> None:
     text = """
     LIZBETH JAQUELINE TOVAR FLORES
     TOFL980825MJCVLZ04
@@ -56,12 +56,20 @@ def test_rfc_has_priority_over_curp() -> None:
 
     parsed = parse_client_message(text)
 
-    assert len(parsed) == 1
+    assert len(parsed) == 2
+
     assert parsed[0].identifier_type == "RFC"
+    assert parsed[0].identifier == "TOFL980825ABC"
     assert parsed[0].rfc == "TOFL980825ABC"
     assert parsed[0].curp is None
-    assert parsed[0].ignored_curps == ("TOFL980825MJCVLZ04",)
 
+    assert parsed[1].identifier_type == "CURP"
+    assert parsed[1].identifier == "TOFL980825MJCVLZ04"
+    assert parsed[1].rfc is None
+    assert parsed[1].curp == "TOFL980825MJCVLZ04"
+
+    assert parsed[0].ignored_curps == ()
+    assert parsed[1].ignored_curps == ()
 
 def test_multiple_rfcs() -> None:
     text = """

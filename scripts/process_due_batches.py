@@ -12,9 +12,8 @@ from app.services.batch_scheduler_service import (
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Revisa y envía los lotes "
-            "agrupados por proveedor "
-            "e intervalo."
+            "Procesa ventanas globales "
+            "de 10 minutos por proveedor."
         )
     )
 
@@ -22,7 +21,7 @@ def parse_arguments() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help=(
-            "Solo muestra el estado; "
+            "Solo muestra ventanas; "
             "no crea ni envía lotes."
         ),
     )
@@ -52,8 +51,14 @@ async def main() -> None:
                             state.provider_name,
                         "interval_minutes":
                             state.interval_minutes,
-                        "max_items":
-                            state.max_items,
+                        "window_start":
+                            state
+                            .window_start
+                            .isoformat(),
+                        "window_end":
+                            state
+                            .window_end
+                            .isoformat(),
                         "client_ids":
                             list(
                                 state.client_ids
@@ -62,18 +67,14 @@ async def main() -> None:
                             list(
                                 state.client_names
                             ),
-                        "pending_count":
-                            state.pending_count,
-                        "oldest_pending_at":
+                        "ready_count":
+                            state.ready_count,
+                        "waiting_curp_count":
                             state
-                            .oldest_pending_at
-                            .isoformat(),
-                        "due_by_interval":
+                            .waiting_curp_count,
+                        "failed_curp_count":
                             state
-                            .due_by_interval,
-                        "due_by_max_items":
-                            state
-                            .due_by_max_items,
+                            .failed_curp_count,
                         "is_due":
                             state.is_due,
                     }
@@ -89,10 +90,8 @@ async def main() -> None:
 
             return
 
-        result = (
-            await process_due_batches(
-                db
-            )
+        result = await process_due_batches(
+            db
         )
 
         print(
@@ -110,6 +109,9 @@ async def main() -> None:
                     "sent_batch_ids":
                         result
                         .sent_batch_ids,
+                    "waiting_curp_windows":
+                        result
+                        .waiting_curp_windows,
                     "skipped_locked_windows":
                         result
                         .skipped_locked_windows,

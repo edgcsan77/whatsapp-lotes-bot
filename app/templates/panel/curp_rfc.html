@@ -1,0 +1,425 @@
+{% extends "panel/base.html" %}
+
+{% block content %}
+<main class="container">
+
+    <header class="page-header">
+        <div>
+            <h1>Convertidor CURP → RFC</h1>
+
+            <p class="muted">
+                Pega una o varias CURP y obtén sus RFC.
+                Esta herramienta no genera solicitudes ni lotes.
+            </p>
+        </div>
+    </header>
+
+    <section class="card">
+        <h2>Consultar CURP</h2>
+
+        {% if error %}
+        <div class="alert alert-error">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <form
+            method="post"
+            action="/panel/curp-rfc"
+            id="curp-rfc-form"
+        >
+            <input
+                type="hidden"
+                name="csrf_token"
+                value="{{ csrf_token }}"
+            >
+
+            <label for="curps">
+                CURP
+            </label>
+
+            <textarea
+                id="curps"
+                name="curps"
+                rows="8"
+                autocomplete="off"
+                autocapitalize="characters"
+                spellcheck="false"
+                placeholder="MOMI920210MMNNRR04&#10;VALC970201HVZZPN01&#10;UAHA380119HVZSRL06"
+                required
+                style="
+                    width: 100%;
+                    margin-top: 8px;
+                    resize: vertical;
+                    min-height: 180px;
+                    font-family: monospace;
+                    font-size: 17px;
+                    line-height: 1.6;
+                    letter-spacing: .5px;
+                    text-transform: uppercase;
+                "
+                oninput="
+                    this.value =
+                        this.value.toUpperCase()
+                "
+            >{{ curps_value or '' }}</textarea>
+
+            <div
+                class="muted"
+                style="
+                    margin-top: 8px;
+                "
+            >
+                Una CURP por línea.
+                Máximo 25 por consulta.
+                Las repetidas se procesan una sola vez.
+            </div>
+
+            <div
+                style="
+                    margin-top: 18px;
+                    display: flex;
+                    gap: 10px;
+                    align-items: center;
+                "
+            >
+                <button
+                    type="submit"
+                    class="button"
+                    id="convert-button"
+                >
+                    Procesar lista
+                </button>
+
+                <span
+                    id="loading-text"
+                    class="muted"
+                    style="display:none;"
+                >
+                    Procesando CURP...
+                </span>
+            </div>
+        </form>
+    </section>
+
+
+    {% if results %}
+    <section
+        class="card"
+        style="margin-top: 22px;"
+    >
+        <div
+            style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 16px;
+                flex-wrap: wrap;
+                margin-bottom: 20px;
+            "
+        >
+            <div>
+                <h2 style="margin-bottom: 6px;">
+                    Resultados
+                </h2>
+
+                <div class="muted">
+                    Total:
+                    {{ results|length }}
+                    ·
+                    Correctas:
+                    {{ success_count }}
+                    ·
+                    Sin RFC:
+                    {{ failed_count }}
+                </div>
+            </div>
+
+            {% if success_count > 0 %}
+            <button
+                type="button"
+                class="button"
+                id="copy-all-button"
+                onclick="copyAllRfcs()"
+            >
+                Copiar todos los RFC
+            </button>
+            {% endif %}
+        </div>
+
+
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>CURP</th>
+                        <th>RFC</th>
+                        <th>Estado</th>
+                        <th>Copiar</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                {% for item in results %}
+                    <tr>
+                        <td>
+                            {{ loop.index }}
+                        </td>
+
+                        <td>
+                            <code>
+                                {{ item.curp }}
+                            </code>
+                        </td>
+
+                        <td>
+                            {% if item.rfc %}
+                            <strong
+                                class="result-rfc"
+                                data-rfc="{{ item.rfc }}"
+                                style="
+                                    font-family: monospace;
+                                    font-size: 16px;
+                                "
+                            >
+                                {{ item.rfc }}
+                            </strong>
+                            {% else %}
+                            <span class="muted">
+                                —
+                            </span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if item.status == "OK" %}
+                            <span
+                                style="
+                                    color: #86efac;
+                                    font-weight: 700;
+                                "
+                            >
+                                ✓ Convertida
+                            </span>
+                            {% else %}
+                            <span
+                                style="
+                                    color: #fca5a5;
+                                    font-weight: 700;
+                                "
+                            >
+                                {{ item.message }}
+                            </span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if item.rfc %}
+                            <button
+                                type="button"
+                                class="button"
+                                style="
+                                    padding: 7px 11px;
+                                "
+                                onclick="copyOneRfc(
+                                    '{{ item.rfc }}',
+                                    this
+                                )"
+                            >
+                                Copiar
+                            </button>
+                            {% else %}
+                            <span class="muted">
+                                —
+                            </span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div
+            id="copy-status"
+            class="muted"
+            style="
+                margin-top: 12px;
+                min-height: 20px;
+            "
+        ></div>
+    </section>
+    {% endif %}
+
+</main>
+
+
+<script>
+const form = document.getElementById(
+    "curp-rfc-form"
+);
+
+if (form) {
+    form.addEventListener(
+        "submit",
+        function () {
+            const button =
+                document.getElementById(
+                    "convert-button"
+                );
+
+            const loading =
+                document.getElementById(
+                    "loading-text"
+                );
+
+            if (button) {
+                button.disabled = true;
+                button.textContent =
+                    "Procesando...";
+            }
+
+            if (loading) {
+                loading.style.display =
+                    "inline";
+            }
+        }
+    );
+}
+
+
+async function copyOneRfc(
+    rfc,
+    button
+) {
+    try {
+        await navigator.clipboard.writeText(
+            rfc
+        );
+
+        const original =
+            button.textContent;
+
+        button.textContent =
+            "Copiado ✓";
+
+        setTimeout(
+            function () {
+                button.textContent =
+                    original;
+            },
+            1500
+        );
+
+    } catch (error) {
+        const textarea =
+            document.createElement(
+                "textarea"
+            );
+
+        textarea.value = rfc;
+
+        document.body.appendChild(
+            textarea
+        );
+
+        textarea.select();
+
+        document.execCommand(
+            "copy"
+        );
+
+        textarea.remove();
+
+        button.textContent =
+            "Copiado ✓";
+    }
+}
+
+
+async function copyAllRfcs() {
+    const elements =
+        document.querySelectorAll(
+            ".result-rfc"
+        );
+
+    const rfcs =
+        Array.from(elements)
+        .map(
+            element =>
+                element.dataset.rfc
+        )
+        .filter(Boolean);
+
+    if (!rfcs.length) {
+        return;
+    }
+
+    const text =
+        rfcs.join("\n");
+
+    const button =
+        document.getElementById(
+            "copy-all-button"
+        );
+
+    const status =
+        document.getElementById(
+            "copy-status"
+        );
+
+    try {
+        await navigator.clipboard.writeText(
+            text
+        );
+
+    } catch (error) {
+        const textarea =
+            document.createElement(
+                "textarea"
+            );
+
+        textarea.value = text;
+
+        document.body.appendChild(
+            textarea
+        );
+
+        textarea.select();
+
+        document.execCommand(
+            "copy"
+        );
+
+        textarea.remove();
+    }
+
+    if (button) {
+        button.textContent =
+            "RFC copiados ✓";
+    }
+
+    if (status) {
+        status.textContent =
+            rfcs.length
+            + " RFC copiados al portapapeles.";
+    }
+
+    setTimeout(
+        function () {
+            if (button) {
+                button.textContent =
+                    "Copiar todos los RFC";
+            }
+
+            if (status) {
+                status.textContent = "";
+            }
+        },
+        2000
+    );
+}
+</script>
+
+{% endblock %}

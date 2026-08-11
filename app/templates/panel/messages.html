@@ -1,0 +1,105 @@
+{% extends "panel/base.html" %}
+
+{% block content %}
+<main class="container">
+
+    <div class="page-header">
+        <div>
+            <h1>Mensajes masivos</h1>
+            <p class="muted">
+                Envía texto libre a grupos y chats privados autorizados.
+            </p>
+        </div>
+    </div>
+
+    {% if message %}
+    <div class="alert alert-success">
+        {{ message }}
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="alert alert-error">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <section class="card">
+        <h2>Nuevo mensaje</h2>
+
+        <form
+            method="post"
+            action="/panel/messages/send"
+            onsubmit="return confirm(
+                '¿Enviar este mensaje a todos los destinatarios seleccionados?'
+            );"
+        >
+            <input
+                type="hidden"
+                name="csrf_token"
+                value="{{ csrf_token }}"
+            >
+
+            <div class="form-grid">
+
+                <div>
+                    <label for="target_type">
+                        Destinatarios
+                    </label>
+
+                    <select
+                        id="target_type"
+                        name="target_type"
+                        required
+                    >
+                        <option value="all">
+                            Todos
+                        </option>
+
+                        <option value="group">
+                            Grupos
+                        </option>
+
+                        <option value="private">
+                            Chats privados
+                        </option>
+                    </select>
+                </div>
+
+            </div>
+
+            <div style="margin-top: 20px;">
+                <label for="broadcast_message">
+                    Mensaje
+                </label>
+
+                <textarea
+                    id="broadcast_message"
+                    name="broadcast_message"
+                    rows="10"
+                    maxlength="4096"
+                    placeholder="Escribe aquí el mensaje..."
+                    required
+                    style="
+                        width: 100%;
+                        resize: vertical;
+                        min-height: 220px;
+                    "
+                ></textarea>
+            </div>
+
+            <p class="muted">
+                Solo se enviará a clientes activos y autorizados.
+            </p>
+
+            <div class="actions">
+                <button type="submit">
+                    Enviar mensaje masivo
+                </button>
+            </div>
+
+        </form>
+    </section>
+
+</main>
+{% endblock %}

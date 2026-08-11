@@ -3743,8 +3743,10 @@ def curp_rfc_page(
             "active_page": "curp_rfc",
             "csrf_token":
                 ensure_csrf_token(request),
-            "curp_value": "",
-            "rfc_result": None,
+            "curps_value": "",
+            "results": [],
+            "success_count": 0,
+            "failed_count": 0,
             "error": None,
         },
     )
@@ -3756,7 +3758,7 @@ def curp_rfc_page(
 )
 def curp_rfc_convert(
     request: Request,
-    curp: str = Form(...),
+    curps: str = Form(...),
     csrf_token: str = Form(...),
 ):
     redirect = require_authenticated(
@@ -3766,9 +3768,9 @@ def curp_rfc_convert(
     if redirect:
         return redirect
 
-    normalized_curp = normalize_text(
-        curp
-    ).replace(" ", "")
+    raw_value = str(
+        curps or ""
+    ).strip()
 
     context = {
         "request": request,
@@ -3776,8 +3778,10 @@ def curp_rfc_convert(
         "active_page": "curp_rfc",
         "csrf_token":
             ensure_csrf_token(request),
-        "curp_value": normalized_curp,
-        "rfc_result": None,
+        "curps_value": raw_value,
+        "results": [],
+        "success_count": 0,
+        "failed_count": 0,
         "error": None,
     }
 
@@ -3797,18 +3801,37 @@ def curp_rfc_convert(
             status_code=400,
         )
 
-    detected_curps = extract_curps(
-        normalized_curp
+    # Acepta una CURP por línea.
+    #
+    # También tolera comas y punto y coma
+    # como separadores.
+    normalized_input = (
+        raw_value
+        .replace(",", "\n")
+        .replace(";", "\n")
     )
 
-    if (
-        len(detected_curps) != 1
-        or detected_curps[0]
-        != normalized_curp
+    entries: list[str] = []
+
+    for raw_line in (
+        normalized_input.splitlines()
     ):
+        value = normalize_text(
+            raw_line
+        )
+
+        value = (
+            value
+            .replace(" ", "")
+            .strip()
+        )
+
+        if value:
+            entries.append(value)
+
+    if not entries:
         context["error"] = (
-            "Ingresa una CURP válida "
-            "de 18 caracteres."
+            "Ingresa al menos una CURP."
         )
 
         return templates.TemplateResponse(
@@ -3818,54 +3841,156 @@ def curp_rfc_convert(
             status_code=400,
         )
 
-    try:
-        rfc, _person_data = (
-            convert_curp_to_rfc(
-                normalized_curp
-            )
+    # Quitar repetidas conservando orden.
+    unique_entries: list[str] = []
+    seen: set[str] = set()
+
+    for value in entries:
+        if value in seen:
+            continue
+
+        seen.add(value)
+        unique_entries.append(value)
+
+    MAX_CURPS_PER_QUERY = 25
+
+    if (
+        len(unique_entries)
+        > MAX_CURPS_PER_QUERY
+    ):
+        context["error"] = (
+            "Puedes procesar máximo "
+            f"{MAX_CURPS_PER_QUERY} CURP "
+            "por consulta."
         )
 
-        context["rfc_result"] = str(
-            rfc or ""
-        ).strip().upper()
+        return templates.TemplateResponse(
+            request=request,
+            name="panel/curp_rfc.html",
+            context=context,
+            status_code=400,
+        )
 
-        if not context["rfc_result"]:
-            context["error"] = (
-                "No fue posible obtener "
-                "el RFC para esa CURP."
-            )
+    results: list[dict[str, str]] = []
 
-    except CurpRfcError as error:
-        error_text = str(error)
+    for curp_value in unique_entries:
+        detected_curps = extract_curps(
+            curp_value
+        )
 
         if (
-            "La CURP no se encuentra "
-            "en la base de datos"
-            in error_text
+            len(detected_curps) != 1
+            or detected_curps[0]
+            != curp_value
         ):
-            context["error"] = (
+            results.append(
+                {
+                    "curp": curp_value,
+                    "rfc": "",
+                    "status": "FORMATO_INVALIDO",
+                    "message":
+                        "Formato de CURP inválido.",
+                }
+            )
+
+            continue
+
+        try:
+            rfc, _person_data = (
+                convert_curp_to_rfc(
+                    curp_value
+                )
+            )
+
+            normalized_rfc = str(
+                rfc or ""
+            ).strip().upper()
+
+            if normalized_rfc:
+                results.append(
+                    {
+                        "curp": curp_value,
+                        "rfc": normalized_rfc,
+                        "status": "OK",
+                        "message": "Convertida",
+                    }
+                )
+
+            else:
+                results.append(
+                    {
+                        "curp": curp_value,
+                        "rfc": "",
+                        "status": "ERROR",
+                        "message":
+                            "No fue posible obtener el RFC.",
+                    }
+                )
+
+        except CurpRfcError as error:
+            error_text = str(error)
+
+            if (
                 "La CURP no se encuentra "
-                "en la base de datos."
+                "en la base de datos"
+                in error_text
+            ):
+                message = (
+                    "CURP no encontrada "
+                    "en la base de datos."
+                )
+
+            else:
+                message = (
+                    "No fue posible obtener "
+                    "el RFC."
+                )
+
+            results.append(
+                {
+                    "curp": curp_value,
+                    "rfc": "",
+                    "status": "NO_ENCONTRADA",
+                    "message": message,
+                }
             )
 
-        else:
-            context["error"] = (
-                "No fue posible obtener "
-                "el RFC para esa CURP."
+        except Exception as error:
+            logger.exception(
+                "Error convertidor múltiple "
+                "CURP->RFC curp=%s error=%s",
+                curp_value,
+                error,
             )
 
-    except Exception as error:
-        logger.exception(
-            "Error en convertidor CURP->RFC "
-            "curp=%s error=%s",
-            normalized_curp,
-            error,
-        )
+            results.append(
+                {
+                    "curp": curp_value,
+                    "rfc": "",
+                    "status": "ERROR",
+                    "message":
+                        "Error temporal del servicio.",
+                }
+            )
 
-        context["error"] = (
-            "El servicio tuvo un error temporal. "
-            "Intenta nuevamente."
-        )
+    success_count = sum(
+        1
+        for item in results
+        if item["status"] == "OK"
+    )
+
+    failed_count = (
+        len(results)
+        - success_count
+    )
+
+    context["results"] = results
+    context["success_count"] = (
+        success_count
+    )
+    context["failed_count"] = (
+        failed_count
+    )
 
     return templates.TemplateResponse(
         request=request,

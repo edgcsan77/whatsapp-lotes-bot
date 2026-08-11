@@ -85,8 +85,8 @@ def test_build_multiple_delivery_retry() -> None:
 
     assert text == (
         "✅ Resultados recibidos\n\n"
-        "VALA830403RA8 SIN ID\n"
-        "RAHC850707NW3 SR"
+        "NO ID VALA830403RA8\n"
+        "NO ID RAHC850707NW3"
     )
 
 

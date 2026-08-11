@@ -228,14 +228,6 @@ def build_delivery_retry_text(
     lines: list[str] = []
 
     for request in requests:
-        raw_result = str(
-            request.provider_result or ""
-        ).strip()
-
-        if raw_result:
-            lines.append(raw_result)
-            continue
-
         rfc = str(
             request.rfc or ""
         ).strip().upper()
@@ -243,20 +235,17 @@ def build_delivery_retry_text(
         if not rfc:
             continue
 
-        if request.result_code == "OK" and request.idcif:
+        if (
+            request.result_code == "OK"
+            and request.idcif
+        ):
             lines.append(
                 f"{rfc} {request.idcif}"
             )
-        elif request.result_code == "SIN_ID":
-            lines.append(
-                f"{rfc} SIN ID"
-            )
-        elif request.result_code == "SIN_RESULTADO":
-            lines.append(
-                f"{rfc} SR"
-            )
         else:
-            lines.append(rfc)
+            lines.append(
+                f"NO ID {rfc}"
+            )
 
     if not lines:
         raise ValueError(

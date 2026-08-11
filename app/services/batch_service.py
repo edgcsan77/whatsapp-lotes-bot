@@ -66,6 +66,8 @@ def create_pending_batch(
     client_id: int | None = None,
     client_ids: list[int] | tuple[int, ...] | None = None,
     max_items: int | None = None,
+    received_from: datetime | None = None,
+    received_before: datetime | None = None,
 ) -> BatchCreationResult:
     provider = db.get(
         Provider,
@@ -82,23 +84,6 @@ def create_pending_batch(
             "PROVIDER_INACTIVE"
         )
 
-    limit = max_items or 50
-
-    query = (
-        select(Request)
-        .where(
-            Request.provider_id == provider.id,
-            Request.status == "PENDING_BATCH",
-            Request.rfc.is_not(None),
-        )
-        .order_by(
-            Request.received_at.asc(),
-            Request.id.asc(),
-        )
-        .limit(limit)
-        .with_for_update(skip_locked=True)
-    )
-
     if (
         client_id is not None
         and client_ids is not None
@@ -107,9 +92,21 @@ def create_pending_batch(
             "CLIENT_FILTER_CONFLICT"
         )
 
+    query = (
+        select(Request)
+        .where(
+            Request.provider_id
+            == provider.id,
+            Request.status
+            == "PENDING_BATCH",
+            Request.rfc.is_not(None),
+        )
+    )
+
     if client_id is not None:
         query = query.where(
-            Request.client_id == client_id
+            Request.client_id
+            == client_id
         )
 
     if client_ids is not None:
@@ -129,6 +126,36 @@ def create_pending_batch(
             )
         )
 
+    if received_from is not None:
+        query = query.where(
+            Request.received_at
+            >= received_from
+        )
+
+    if received_before is not None:
+        query = query.where(
+            Request.received_at
+            < received_before
+        )
+
+    query = query.order_by(
+        Request.received_at.asc(),
+        Request.id.asc(),
+    )
+
+    # max_items=None significa ILIMITADO.
+    if max_items is not None:
+        query = query.limit(
+            max(
+                int(max_items),
+                1,
+            )
+        )
+
+    query = query.with_for_update(
+        skip_locked=True
+    )
+
     requests = list(
         db.scalars(query)
     )
@@ -138,14 +165,20 @@ def create_pending_batch(
             "NO_PENDING_REQUESTS"
         )
 
-    client_ids = {
+    selected_client_ids = {
         request.client_id
         for request in requests
     }
 
     batch_client_id = (
-        next(iter(client_ids))
-        if len(client_ids) == 1
+        next(
+            iter(
+                selected_client_ids
+            )
+        )
+        if len(
+            selected_client_ids
+        ) == 1
         else None
     )
 

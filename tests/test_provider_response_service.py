@@ -36,7 +36,7 @@ def test_rfc_only_result_line() -> None:
 
     assert render_provider_result_line(
         parsed[0]
-    ) == "VALA830403RA8"
+    ) == "NO ID VALA830403RA8"
 
 
 def test_sin_id_result_line() -> None:
@@ -46,7 +46,7 @@ def test_sin_id_result_line() -> None:
 
     assert render_provider_result_line(
         parsed[0]
-    ) == "VALA830403RA8 SIN ID"
+    ) == "NO ID VALA830403RA8"
 
 
 def test_multiple_client_result_message() -> None:

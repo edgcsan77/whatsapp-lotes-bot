@@ -143,27 +143,20 @@ def parse_client_message(text: str) -> list[ParsedClientRequest]:
 
     results: list[ParsedClientRequest] = []
 
-    # Regla principal:
-    # si el mensaje contiene al menos un RFC,
-    # se procesan únicamente los RFC y las CURP se ignoran
-    # para no crear ni cobrar solicitudes duplicadas.
-    if rfcs:
-        ignored_curps = tuple(curps)
-
-        for rfc in rfcs:
-            results.append(
-                ParsedClientRequest(
-                    identifier_type="RFC",
-                    identifier=rfc,
-                    rfc=rfc,
-                    curp=None,
-                    detected_name=detected_name,
-                    original_text=original_text,
-                    ignored_curps=ignored_curps,
-                )
+    # RFC y CURP pueden convivir en el mismo
+    # mensaje. Se procesan TODOS.
+    for rfc in rfcs:
+        results.append(
+            ParsedClientRequest(
+                identifier_type="RFC",
+                identifier=rfc,
+                rfc=rfc,
+                curp=None,
+                detected_name=detected_name,
+                original_text=original_text,
+                ignored_curps=(),
             )
-
-        return results
+        )
 
     for curp in curps:
         results.append(

@@ -20,6 +20,7 @@ from app.services.acknowledgement_service import (
     build_request_acknowledgement,
 )
 from app.services.evolution_webhook import (
+    parse_evolution_delete_payload,
     parse_evolution_payload,
     secrets_match,
 )
@@ -29,6 +30,12 @@ from app.services.provider_response_service import (
 )
 from app.services.whatsapp_admin_service import (
     process_whatsapp_admin_command,
+)
+
+from app.services.delayed_client_message_service import (
+    DelayedClientMessage,
+    cancel_client_message,
+    enqueue_client_message,
 )
 
 from app.services.request_service import (
@@ -73,6 +80,47 @@ async def evolution_webhook(
             detail="INVALID_JSON",
         ) from error
 
+    deleted = parse_evolution_delete_payload(
+        payload
+    )
+
+    if deleted is not None:
+        if (
+            deleted.instance
+            != settings.evolution_instance
+        ):
+            return {
+                "ok": True,
+                "ignored": True,
+                "reason": "INSTANCE_NOT_ALLOWED",
+                "instance": deleted.instance,
+            }
+
+        cancelled = cancel_client_message(
+            instance=deleted.instance,
+            source_jid=deleted.source_jid,
+            message_id=deleted.message_id,
+        )
+
+        logger.info(
+            "MESSAGES_DELETE recibido "
+            "message_id=%s source_jid=%s "
+            "cancelled=%s",
+            deleted.message_id,
+            deleted.source_jid,
+            cancelled,
+        )
+
+        return {
+            "ok": True,
+            "ignored": False,
+            "message_type":
+                "CLIENT_MESSAGE_DELETE",
+            "message_id":
+                deleted.message_id,
+            "cancelled": cancelled,
+        }
+
     parsed = parse_evolution_payload(payload)
 
     if parsed is None:
@@ -89,13 +137,6 @@ async def evolution_webhook(
             "ignored": True,
             "reason": "INSTANCE_NOT_ALLOWED",
             "instance": parsed.instance,
-        }
-
-    if parsed.from_me:
-        return {
-            "ok": True,
-            "ignored": True,
-            "reason": "MESSAGE_FROM_BOT",
         }
 
     if not parsed.text:
@@ -116,6 +157,7 @@ async def evolution_webhook(
             sender_jid=parsed.sender_jid,
             sender_name=parsed.sender_name,
             text=parsed.text,
+            from_me=parsed.from_me,
         )
     )
 
@@ -167,6 +209,20 @@ async def evolution_webhook(
                 command_response_error,
         }
 
+    # Los mensajes enviados desde el propio
+    # WhatsApp del bot solo pueden llegar hasta
+    # el procesador de comandos administrativos.
+    #
+    # Si no fueron reconocidos como comando,
+    # se ignoran para evitar reprocesar mensajes
+    # que el propio bot acaba de enviar.
+    if parsed.from_me:
+        return {
+            "ok": True,
+            "ignored": True,
+            "reason": "MESSAGE_FROM_BOT",
+        }
+
     # Primero revisamos si el mensaje viene
     # de un grupo proveedor.
     provider = get_active_provider_by_jid(
@@ -211,7 +267,44 @@ async def evolution_webhook(
                     .delivery_failed_request_ids,
         }
 
-    # Si no es proveedor, se procesa como cliente.
+    # Si no es proveedor ni comando administrativo,
+    # se trata como posible mensaje de cliente.
+    #
+    # NO se crea todavía ninguna Request.
+    # Se conserva durante 60 segundos en Redis para
+    # permitir que el usuario lo elimine de WhatsApp.
+    due_at = enqueue_client_message(
+        DelayedClientMessage(
+            instance=parsed.instance,
+            message_id=parsed.message_id,
+            source_jid=parsed.source_jid,
+            sender_jid=parsed.sender_jid,
+            sender_name=parsed.sender_name,
+            text=parsed.text,
+        ),
+        delay_seconds=60,
+    )
+
+    logger.info(
+        "Mensaje cliente puesto en espera "
+        "message_id=%s source_jid=%s "
+        "delay_seconds=60 due_at=%s",
+        parsed.message_id,
+        parsed.source_jid,
+        due_at,
+    )
+
+    return {
+        "ok": True,
+        "ignored": False,
+        "message_type":
+            "CLIENT_REQUEST_DELAYED",
+        "message_id": parsed.message_id,
+        "delay_seconds": 60,
+    }
+
+    # Código histórico conservado temporalmente
+    # debajo para facilitar rollback.
     try:
         result = register_client_message(
             db,

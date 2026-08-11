@@ -87,6 +87,9 @@ def is_whatsapp_admin(
         sender_jid=sender_jid,
     )
 
+    if from_me and not actor:
+        actor = "BOT_SELF"
+
     return (
         bool(actor)
         and actor in get_admin_jids()
@@ -295,15 +298,7 @@ def authorize_client(
         return (
             "✅ *Cliente autorizado*\n\n"
             f"Nombre: {client.name}\n"
-            f"Tipo: "
-            f"{'Grupo' if source_type == 'group' else 'Privado'}\n"
-            f"Precio: "
-            f"${client.price_per_request:.2f}\n"
-            f"Lote: cada "
-            f"{client.batch_interval_minutes} min\n"
-            f"Máximo: "
-            f"{client.batch_max_items}\n"
-            f"Proveedor: {provider.name}"
+            "Estado: Activo"
         )
 
     # Ya existe: reactivamos y opcionalmente
@@ -345,8 +340,6 @@ def authorize_client(
     return (
         "✅ *Cliente autorizado*\n\n"
         f"Nombre: {client.name}\n"
-        f"Precio: "
-        f"${client.price_per_request:.2f}\n"
         "Estado: Activo"
     )
 
@@ -737,6 +730,7 @@ def process_whatsapp_admin_command(
     sender_jid: str | None,
     sender_name: str | None,
     text: str,
+    from_me: bool = False,
 ) -> WhatsAppAdminResult:
     command_text = str(
         text or ""
@@ -757,8 +751,8 @@ def process_whatsapp_admin_command(
     command = parts[0].lower()
 
     supported = {
-        "/autorizar",
-        "/desautorizar",
+        "/autorizargrupo",
+        "/desautorizargrupo",
         "/autorizarprivado",
         "/desautorizarprivado",
         "/autorizarprov",
@@ -773,9 +767,12 @@ def process_whatsapp_admin_command(
             handled=False
         )
 
-    if not is_whatsapp_admin(
-        source_jid=source_jid,
-        sender_jid=sender_jid,
+    if (
+        not from_me
+        and not is_whatsapp_admin(
+            source_jid=source_jid,
+            sender_jid=sender_jid,
+        )
     ):
         # Se procesa el comando, pero jamás
         # permite que siga como solicitud.
@@ -797,11 +794,7 @@ def process_whatsapp_admin_command(
             handled=True,
             response_text=(
                 "🛠️ *Comandos proveedor*\n\n"
-                "/autorizarprov "
-                "PRIORIDAD ESPERA NOMBRE\n\n"
-                "Ejemplo:\n"
-                "/autorizarprov "
-                "1 30 Prov Lotes\n\n"
+                "/autorizarprov\n"
                 "/desautorizarprov\n"
                 "/eliminarprov"
             ),
@@ -812,78 +805,46 @@ def process_whatsapp_admin_command(
             handled=True,
             response_text=(
                 "🛠️ *Comandos administrativos*\n\n"
-                "/autorizar\n"
-                "/autorizar 2.00\n"
-                "/autorizar 2.00 Nombre\n"
-                "/desautorizar\n\n"
-                "/autorizarprivado "
-                "5218991234567 2.00 Nombre\n"
-                "/desautorizarprivado "
-                "5218991234567\n\n"
+                "*Grupos*\n"
+                "/autorizargrupo\n"
+                "/desautorizargrupo\n\n"
+                "*Chats privados*\n"
+                "/autorizarprivado\n"
+                "/desautorizarprivado\n\n"
                 "*Proveedores*\n"
-                "/autorizarprov "
-                "1 30 Nombre\n"
+                "/autorizarprov\n"
                 "/desautorizarprov\n"
-                "/eliminarprov\n"
-                "/ayudaprov"
+                "/eliminarprov"
             ),
         )
 
     if command == "/autorizarprov":
-        if not str(
-            source_jid or ""
-        ).endswith("@g.us"):
+        target_jid = canonical_jid(
+            source_jid
+        )
+
+        if (
+            not target_jid
+            or not target_jid.endswith("@g.us")
+        ):
             return WhatsAppAdminResult(
                 handled=True,
                 response_text=(
                     "⚠️ /autorizarprov debe "
-                    "ejecutarse dentro del grupo "
+                    "usarse dentro del grupo "
                     "proveedor."
                 ),
             )
-
-        if len(parts) < 4:
-            return WhatsAppAdminResult(
-                handled=True,
-                response_text=(
-                    "⚠️ Formato incorrecto.\n\n"
-                    "Usa:\n"
-                    "/autorizarprov "
-                    "1 30 Nombre proveedor"
-                ),
-            )
-
-        try:
-            priority = int(parts[1])
-            timeout_minutes = int(
-                parts[2]
-            )
-        except ValueError:
-            return WhatsAppAdminResult(
-                handled=True,
-                response_text=(
-                    "⚠️ Prioridad y espera "
-                    "deben ser números enteros.\n\n"
-                    "Ejemplo:\n"
-                    "/autorizarprov "
-                    "1 30 Prov Lotes"
-                ),
-            )
-
-        provider_name = " ".join(
-            parts[3:]
-        ).strip()
 
         return WhatsAppAdminResult(
             handled=True,
             response_text=authorize_provider(
                 db,
-                target_jid=source_jid,
+                target_jid=target_jid,
                 actor=actor,
-                priority=priority,
-                timeout_minutes=
-                    timeout_minutes,
-                name=provider_name,
+                priority=100,
+                timeout_minutes=60,
+                name="Proveedor WhatsApp",
             ),
         )
 
@@ -909,20 +870,27 @@ def process_whatsapp_admin_command(
         )
 
     if command in {
-        "/autorizar",
-        "/desautorizar",
+        "/autorizargrupo",
+        "/desautorizargrupo",
     }:
-        target_jid = str(
-            source_jid or ""
-        ).strip()
-
-        source_type = (
-            "group"
-            if target_jid.endswith("@g.us")
-            else "private"
+        target_jid = canonical_jid(
+            source_jid
         )
 
-        if command == "/desautorizar":
+        if (
+            not target_jid
+            or not target_jid.endswith("@g.us")
+        ):
+            return WhatsAppAdminResult(
+                handled=True,
+                response_text=(
+                    "⚠️ Este comando debe "
+                    "usarse dentro del grupo "
+                    "cliente."
+                ),
+            )
+
+        if command == "/desautorizargrupo":
             return WhatsAppAdminResult(
                 handled=True,
                 response_text=deactivate_client(
@@ -932,88 +900,36 @@ def process_whatsapp_admin_command(
                 ),
             )
 
-        price = None
-        name = None
-
-        if len(parts) >= 2:
-            price = parse_price(
-                parts[1]
-            )
-
-            if price is None:
-                return WhatsAppAdminResult(
-                    handled=True,
-                    response_text=(
-                        "⚠️ Formato incorrecto.\n\n"
-                        "Usa:\n"
-                        "/autorizar 2.00\n"
-                        "o\n"
-                        "/autorizar 2.00 "
-                        "Nombre del cliente"
-                    ),
-                )
-
-        if len(parts) >= 3:
-            name = " ".join(
-                parts[2:]
-            ).strip()
-
         return WhatsAppAdminResult(
             handled=True,
             response_text=authorize_client(
                 db,
                 target_jid=target_jid,
-                source_type=source_type,
+                source_type="group",
                 actor=actor,
-                sender_name=sender_name,
-                price=price,
-                name=name,
+                sender_name=None,
+                price=None,
+                name=None,
             ),
         )
 
     if command == "/autorizarprivado":
-        if len(parts) < 2:
-            return WhatsAppAdminResult(
-                handled=True,
-                response_text=(
-                    "⚠️ Usa:\n"
-                    "/autorizarprivado "
-                    "5218991234567 2.00 Nombre"
-                ),
-            )
-
-        target_jid = private_target_jid(
-            parts[1]
+        target_jid = canonical_jid(
+            source_jid
         )
 
-        if target_jid is None:
+        if (
+            not target_jid
+            or target_jid.endswith("@g.us")
+        ):
             return WhatsAppAdminResult(
                 handled=True,
                 response_text=(
-                    "⚠️ Número privado inválido."
+                    "⚠️ /autorizarprivado "
+                    "debe usarse dentro del "
+                    "chat privado del cliente."
                 ),
             )
-
-        price = None
-        name = None
-
-        if len(parts) >= 3:
-            price = parse_price(
-                parts[2]
-            )
-
-            if price is None:
-                return WhatsAppAdminResult(
-                    handled=True,
-                    response_text=(
-                        "⚠️ Precio inválido."
-                    ),
-                )
-
-        if len(parts) >= 4:
-            name = " ".join(
-                parts[3:]
-            ).strip()
 
         return WhatsAppAdminResult(
             handled=True,
@@ -1022,32 +938,27 @@ def process_whatsapp_admin_command(
                 target_jid=target_jid,
                 source_type="private",
                 actor=actor,
-                sender_name=None,
-                price=price,
-                name=name,
+                sender_name=sender_name,
+                price=None,
+                name=None,
             ),
         )
 
     if command == "/desautorizarprivado":
-        if len(parts) < 2:
-            return WhatsAppAdminResult(
-                handled=True,
-                response_text=(
-                    "⚠️ Usa:\n"
-                    "/desautorizarprivado "
-                    "5218991234567"
-                ),
-            )
-
-        target_jid = private_target_jid(
-            parts[1]
+        target_jid = canonical_jid(
+            source_jid
         )
 
-        if target_jid is None:
+        if (
+            not target_jid
+            or target_jid.endswith("@g.us")
+        ):
             return WhatsAppAdminResult(
                 handled=True,
                 response_text=(
-                    "⚠️ Número privado inválido."
+                    "⚠️ /desautorizarprivado "
+                    "debe usarse dentro del "
+                    "chat privado del cliente."
                 ),
             )
 

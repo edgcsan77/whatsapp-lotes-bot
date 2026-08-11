@@ -8,7 +8,9 @@ def unique_preserving_order(
     output: list[str] = []
 
     for value in values:
-        normalized = str(value or "").strip().upper()
+        normalized = str(
+            value or ""
+        ).strip().upper()
 
         if not normalized:
             continue
@@ -32,28 +34,34 @@ def build_request_acknowledgement(
     if not normalized:
         return ""
 
-    if len(normalized) == 1:
-        identifier_block = normalized[0]
-        label = (
-            "CURP"
-            if len(normalized[0]) == 18
-            else "RFC"
-        )
-
-        return (
-            "✅ Solicitud recibida\n\n"
-            f"{label}: {identifier_block}\n"
-            "Estado: pendiente de envío"
-        )
-
-    lines = "\n".join(
-        f"• {identifier}"
+    curp_count = sum(
+        1
         for identifier in normalized
+        if len(identifier) == 18
     )
 
+    rfc_count = sum(
+        1
+        for identifier in normalized
+        if len(identifier) != 18
+    )
+
+    parts: list[str] = []
+
+    if curp_count:
+        parts.append(
+            f"{curp_count} CURP"
+        )
+
+    if rfc_count:
+        parts.append(
+            f"{rfc_count} RFC"
+        )
+
+    summary = " y ".join(parts)
+
     return (
-        "✅ Solicitudes recibidas\n\n"
-        f"{lines}\n\n"
-        f"Total: {len(normalized)}\n"
-        "Estado: pendientes de envío"
+        "✅ Solicitud recibida\n\n"
+        f"{summary}\n"
+        "Estado: pendiente de envío"
     )

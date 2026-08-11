@@ -78,16 +78,24 @@ def get_active_provider_by_jid(
 def render_provider_result_line(
     result: ParsedProviderResult,
 ) -> str:
-    if result.result_code == "OK" and result.idcif:
-        return f"{result.rfc} {result.idcif}"
+    rfc = str(
+        result.rfc or ""
+    ).strip().upper()
 
-    if result.result_code == "SIN_ID":
-        return f"{result.rfc} SIN ID"
+    if (
+        result.result_code == "OK"
+        and result.idcif
+    ):
+        return (
+            f"{rfc} "
+            f"{str(result.idcif).strip()}"
+        )
 
-    if result.result_code == "SIN_RESULTADO":
-        return f"{result.rfc} SR"
-
-    return result.rfc
+    # Cualquier respuesta sin IDCIF
+    # se muestra al cliente como NO ID,
+    # independientemente de si el proveedor
+    # respondió SIN ID, SR o solamente RFC.
+    return f"NO ID {rfc}"
 
 
 def build_client_result_message(

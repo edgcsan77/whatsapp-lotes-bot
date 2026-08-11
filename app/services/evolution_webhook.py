@@ -210,3 +210,92 @@ def parse_evolution_payload(
         text=text,
         from_me=from_me,
     )
+
+
+DELETE_EVENTS = {
+    "MESSAGES_DELETE",
+    "messages.delete",
+    "messages-delete",
+}
+
+
+@dataclass(frozen=True)
+class EvolutionDeletedMessage:
+    instance: str
+    event: str
+    message_id: str
+    source_jid: str
+
+
+def parse_evolution_delete_payload(
+    payload: dict[str, Any],
+) -> EvolutionDeletedMessage | None:
+    if not isinstance(payload, dict):
+        return None
+
+    event = normalize_event(
+        first_non_empty(
+            payload.get("event"),
+            payload.get("type"),
+        )
+    )
+
+    if event not in DELETE_EVENTS:
+        return None
+
+    instance = first_non_empty(
+        payload.get("instance"),
+        nested_get(
+            payload,
+            "data",
+            "instance",
+        ),
+        nested_get(
+            payload,
+            "data",
+            "instanceName",
+        ),
+    )
+
+    data = payload.get("data")
+
+    if not isinstance(data, dict):
+        data = {}
+
+    key = data.get("key")
+
+    if not isinstance(key, dict):
+        key = {}
+
+    message_id = first_non_empty(
+        key.get("id"),
+        data.get("id"),
+        data.get("messageId"),
+        payload.get("messageId"),
+    )
+
+    source_jid = first_non_empty(
+        key.get("remoteJid"),
+        data.get("remoteJid"),
+        data.get("chatId"),
+        nested_get(
+            data,
+            "message",
+            "key",
+            "remoteJid",
+        ),
+    )
+
+    if not (
+        instance
+        and message_id
+        and source_jid
+    ):
+        return None
+
+    return EvolutionDeletedMessage(
+        instance=instance,
+        event=event,
+        message_id=message_id,
+        source_jid=source_jid,
+    )
