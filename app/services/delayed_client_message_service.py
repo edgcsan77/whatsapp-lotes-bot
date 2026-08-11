@@ -285,3 +285,209 @@ def remove_pending_key(
     pipe.delete(key)
     pipe.zrem(PENDING_ZSET, key)
     pipe.execute()
+
+
+# ============================================================
+# ACK RETRY QUEUE
+# ============================================================
+
+ACK_RETRY_PREFIX = "client_ack_retry:"
+ACK_RETRY_ZSET = "client_ack_retry:due"
+
+ACK_RETRY_RETENTION_SECONDS = 86400
+
+ACK_RETRY_DELAYS = (
+    60,
+    120,
+    300,
+    600,
+    1200,
+    1800,
+    3600,
+    7200,
+)
+
+
+@dataclass(frozen=True)
+class PendingAckRetry:
+    retry_id: str
+    instance: str
+    source_jid: str
+    text: str
+    attempt: int = 0
+
+
+def ack_retry_key(
+    retry_id: str,
+) -> str:
+    return (
+        f"{ACK_RETRY_PREFIX}"
+        f"{retry_id}"
+    )
+
+
+def enqueue_ack_retry(
+    retry: PendingAckRetry,
+    *,
+    delay_seconds: int | None = None,
+) -> float:
+    attempt = max(
+        0,
+        int(retry.attempt),
+    )
+
+    if delay_seconds is None:
+        delay_index = min(
+            attempt,
+            len(ACK_RETRY_DELAYS) - 1,
+        )
+
+        delay_seconds = (
+            ACK_RETRY_DELAYS[
+                delay_index
+            ]
+        )
+
+    delay_seconds = max(
+        1,
+        int(delay_seconds),
+    )
+
+    due_at = (
+        time.time()
+        + delay_seconds
+    )
+
+    key = ack_retry_key(
+        retry.retry_id
+    )
+
+    payload = json.dumps(
+        asdict(retry),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+    pipe = redis_client.pipeline()
+
+    pipe.set(
+        key,
+        payload,
+        ex=ACK_RETRY_RETENTION_SECONDS,
+    )
+
+    pipe.zadd(
+        ACK_RETRY_ZSET,
+        {
+            key: due_at,
+        },
+    )
+
+    pipe.execute()
+
+    return due_at
+
+
+def get_due_ack_retry_keys(
+    *,
+    now: float | None = None,
+    limit: int = 500,
+) -> list[str]:
+    timestamp = (
+        time.time()
+        if now is None
+        else float(now)
+    )
+
+    values = redis_client.zrangebyscore(
+        ACK_RETRY_ZSET,
+        min="-inf",
+        max=timestamp,
+        start=0,
+        num=max(
+            1,
+            int(limit),
+        ),
+    )
+
+    output: list[str] = []
+
+    for value in values:
+        if isinstance(
+            value,
+            bytes,
+        ):
+            value = value.decode(
+                "utf-8",
+                errors="replace",
+            )
+
+        output.append(
+            str(value)
+        )
+
+    return output
+
+
+def get_pending_ack_retry(
+    key: str,
+) -> PendingAckRetry | None:
+    raw = redis_client.get(
+        key
+    )
+
+    if not raw:
+        return None
+
+    if isinstance(
+        raw,
+        bytes,
+    ):
+        raw = raw.decode(
+            "utf-8",
+            errors="replace",
+        )
+
+    data = json.loads(
+        raw
+    )
+
+    return PendingAckRetry(
+        retry_id=str(
+            data.get("retry_id")
+            or ""
+        ),
+        instance=str(
+            data.get("instance")
+            or ""
+        ),
+        source_jid=str(
+            data.get("source_jid")
+            or ""
+        ),
+        text=str(
+            data.get("text")
+            or ""
+        ),
+        attempt=int(
+            data.get("attempt")
+            or 0
+        ),
+    )
+
+
+def remove_ack_retry_key(
+    key: str,
+) -> None:
+    pipe = redis_client.pipeline()
+
+    pipe.delete(
+        key
+    )
+
+    pipe.zrem(
+        ACK_RETRY_ZSET,
+        key,
+    )
+
+    pipe.execute()

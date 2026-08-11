@@ -1,0 +1,11 @@
+[Unit]
+Description=WhatsApp Lotes - process delayed messages
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=5s
+AccuracySec=1s
+Unit=whatsapp-lotes-delayed-messages.service
+
+[Install]
+WantedBy=timers.target

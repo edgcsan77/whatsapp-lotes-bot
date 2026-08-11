@@ -87,9 +87,6 @@ def is_whatsapp_admin(
         sender_jid=sender_jid,
     )
 
-    if from_me and not actor:
-        actor = "BOT_SELF"
-
     return (
         bool(actor)
         and actor in get_admin_jids()

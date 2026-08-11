@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.services.batch_scheduler_service import (
     calculate_batch_due,
+    calculate_window,
 )
 
 
@@ -103,3 +104,72 @@ def test_naive_datetime_is_supported() -> None:
     )
 
     assert due_interval is True
+
+
+
+def test_global_window_uses_fixed_ten_minutes() -> None:
+    value = datetime(
+        2026,
+        8,
+        11,
+        7,
+        14,
+        59,
+        tzinfo=UTC,
+    )
+
+    start, end = calculate_window(
+        value
+    )
+
+    assert start == datetime(
+        2026,
+        8,
+        11,
+        7,
+        10,
+        tzinfo=UTC,
+    )
+
+    assert end == datetime(
+        2026,
+        8,
+        11,
+        7,
+        20,
+        tzinfo=UTC,
+    )
+
+
+def test_next_global_window_starts_at_boundary() -> None:
+    value = datetime(
+        2026,
+        8,
+        11,
+        7,
+        20,
+        0,
+        tzinfo=UTC,
+    )
+
+    start, end = calculate_window(
+        value
+    )
+
+    assert start == datetime(
+        2026,
+        8,
+        11,
+        7,
+        20,
+        tzinfo=UTC,
+    )
+
+    assert end == datetime(
+        2026,
+        8,
+        11,
+        7,
+        30,
+        tzinfo=UTC,
+    )

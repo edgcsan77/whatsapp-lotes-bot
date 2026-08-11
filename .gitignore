@@ -53,3 +53,6 @@ chromedriver.log
 *.pdf
 *.xlsx
 *.csv
+.cache/
+.config/
+.local/

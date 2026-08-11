@@ -120,32 +120,50 @@ def build_client_result_message(
     )
 
 
-def find_pending_request_for_result(
+def find_pending_requests_for_result(
     db: Session,
     *,
     provider_id: int,
     rfc: str,
-) -> Request | None:
-    return db.scalar(
-        select(Request)
-        .where(
-            Request.provider_id == provider_id,
-            Request.rfc == rfc,
-            Request.status.in_(
-                [
-                    "SENT_TO_PROVIDER",
-                    "BATCH_SEND_FAILED",
-                ]
-            ),
-        )
-        .order_by(
-            Request.sent_to_provider_at.asc(),
-            Request.id.asc(),
-        )
-        .with_for_update(skip_locked=True)
-        .limit(1)
+) -> list[Request]:
+    # Solamente estados que realmente llegaron
+    # al proveedor.
+    #
+    # BATCH_SEND_FAILED NO entra aquí porque
+    # ese lote no fue enviado correctamente.
+    pending_statuses = (
+        "SENT_TO_PROVIDER",
+        "PROVIDER_TIMEOUT",
     )
 
+    # Un mismo RFC puede estar pendiente para
+    # varios clientes e incluso haber aparecido
+    # en más de un lote.
+    #
+    # Como la respuesta del proveedor solamente
+    # identifica el RFC y no el batch_id, una
+    # respuesta válida debe satisfacer TODAS las
+    # solicitudes pendientes de ese RFC para el
+    # mismo proveedor.
+    return list(
+        db.scalars(
+            select(Request)
+            .where(
+                Request.provider_id == provider_id,
+                Request.rfc == rfc,
+                Request.status.in_(
+                    pending_statuses
+                ),
+            )
+            .order_by(
+                Request.sent_to_provider_at.asc(),
+                Request.id.asc(),
+            )
+            .with_for_update(
+                skip_locked=True
+            )
+        )
+    )
 
 def find_already_processed_request(
     db: Session,
@@ -206,13 +224,13 @@ def register_provider_results(
     ] = defaultdict(list)
 
     for parsed in parsed_results:
-        request = find_pending_request_for_result(
+        requests = find_pending_requests_for_result(
             db,
             provider_id=provider.id,
             rfc=parsed.rfc,
         )
 
-        if request is None:
+        if not requests:
             processed = find_already_processed_request(
                 db,
                 provider_id=provider.id,
@@ -230,38 +248,47 @@ def register_provider_results(
 
             continue
 
-        client = db.get(
-            Client,
-            request.client_id,
-        )
-
-        if client is None:
-            logger.error(
-                "Cliente inexistente para request_id=%s",
-                request.id,
+        for request in requests:
+            client = db.get(
+                Client,
+                request.client_id,
             )
-            result.unmatched_rfcs.append(
-                parsed.rfc
+
+            if client is None:
+                logger.error(
+                    "Cliente inexistente para "
+                    "request_id=%s",
+                    request.id,
+                )
+                continue
+
+            request.provider_result = (
+                parsed.raw_line
             )
-            continue
-
-        request.provider_result = parsed.raw_line
-        request.idcif = parsed.idcif
-        request.result_code = parsed.result_code
-        request.provider_replied_at = now
-        request.status = "RESULT_RECEIVED"
-
-        result.matched_request_ids.append(
-            request.id
-        )
-
-        delivery_map[client.id].append(
-            (
-                request,
-                client,
-                parsed,
+            request.idcif = (
+                parsed.idcif
             )
-        )
+            request.result_code = (
+                parsed.result_code
+            )
+            request.provider_replied_at = now
+            request.status = (
+                "RESULT_RECEIVED"
+            )
+
+            result.matched_request_ids.append(
+                request.id
+            )
+
+            delivery_map[
+                client.id
+            ].append(
+                (
+                    request,
+                    client,
+                    parsed,
+                )
+            )
 
     db.commit()
 

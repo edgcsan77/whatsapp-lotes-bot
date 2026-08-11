@@ -1,0 +1,13 @@
+[Unit]
+Description=WhatsApp Lotes - delayed client messages
+After=network.target redis-server.service
+
+[Service]
+Type=oneshot
+User=whatsapp-lotes
+Group=whatsapp-lotes
+WorkingDirectory=/opt/whatsapp-lotes-bot
+ExecStart=/opt/whatsapp-lotes-bot/venv/bin/python -m app.services.delayed_client_message_worker
+
+[Install]
+WantedBy=multi-user.target

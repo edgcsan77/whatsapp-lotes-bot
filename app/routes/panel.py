@@ -162,6 +162,8 @@ PANEL_STATUS_LABELS = {
         "Agregada a lote",
     "SENT_TO_PROVIDER":
         "Enviada al proveedor",
+    "PROVIDER_TIMEOUT":
+        "Proveedor sin respuesta",
     "RESULT_RECEIVED":
         "Resultado recibido",
     "DELIVERY_FAILED":
@@ -887,7 +889,6 @@ def update_client(
     daily_cutoff_time: str = Form(...),
     timezone: str = Form(...),
     csrf_token: str = Form(...),
-    batch_enabled: str | None = Form(None),
     daily_cutoff_enabled: str | None = Form(
         None
     ),
@@ -982,9 +983,9 @@ def update_client(
         whatsapp_jid.strip()
     )
     client.price_per_request = price
-    client.batch_enabled = checkbox_value(
-        batch_enabled
-    )
+    # Todos los clientes participan
+    # obligatoriamente en los lotes globales.
+    client.batch_enabled = True
     client.batch_interval_minutes = (
         batch_interval_minutes
     )
@@ -1904,12 +1905,30 @@ def system_status_page(
 
     automations = [
         {
+            "name": "Recepción 60 s",
+            "description":
+                "Agrupa mensajes y envía acuses a clientes.",
+            **_timer_health(
+                "whatsapp-lotes-delayed-messages.timer",
+                "whatsapp-lotes-delayed-messages.service",
+            ),
+        },
+        {
             "name": "Lotes",
             "description":
                 "Agrupa y envía solicitudes al proveedor.",
             **_timer_health(
                 "whatsapp-lotes-batches.timer",
                 "whatsapp-lotes-batches.service",
+            ),
+        },
+        {
+            "name": "Timeout proveedor",
+            "description":
+                "Detecta solicitudes sin respuesta del proveedor.",
+            **_timer_health(
+                "whatsapp-lotes-provider-timeouts.timer",
+                "whatsapp-lotes-provider-timeouts.service",
             ),
         },
         {

@@ -1,0 +1,12 @@
+[Unit]
+Description=Revisar timeouts de proveedor cada minuto
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=60
+AccuracySec=5
+Persistent=true
+Unit=whatsapp-lotes-provider-timeouts.service
+
+[Install]
+WantedBy=timers.target

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import uuid
 from collections import defaultdict
 
 from app.database import SessionLocal
@@ -11,9 +12,15 @@ from app.services.acknowledgement_service import (
     build_request_acknowledgement,
 )
 from app.services.delayed_client_message_service import (
+    ACK_RETRY_DELAYS,
     DelayedClientMessage,
+    PendingAckRetry,
+    enqueue_ack_retry,
+    get_due_ack_retry_keys,
     get_due_keys,
+    get_pending_ack_retry,
     get_pending_message,
+    remove_ack_retry_key,
     remove_pending_key,
 )
 from app.services.request_service import (
@@ -227,13 +234,43 @@ async def process_pending_group(
                 )
             )
 
-            await send_group_message(
-                destination_jid=
-                    destination_jid,
-                instance=instance,
-                text=acknowledgement_text,
-                log_label="ACK agrupado",
+            ack_sent = (
+                await send_group_message(
+                    destination_jid=
+                        destination_jid,
+                    instance=instance,
+                    text=acknowledgement_text,
+                    log_label="ACK agrupado",
+                )
             )
+
+            if not ack_sent:
+                retry_id = (
+                    uuid.uuid4().hex
+                )
+
+                due_at = enqueue_ack_retry(
+                    PendingAckRetry(
+                        retry_id=retry_id,
+                        instance=instance,
+                        source_jid=
+                            destination_jid,
+                        text=
+                            acknowledgement_text,
+                        attempt=0,
+                    )
+                )
+
+                logger.warning(
+                    "ACK agrupado puesto "
+                    "en cola de reintento "
+                    "retry_id=%s "
+                    "source_jid=%s "
+                    "due_at=%s",
+                    retry_id,
+                    destination_jid,
+                    due_at,
+                )
 
         if invalid_curps:
             lines = [
@@ -363,6 +400,115 @@ async def process_pending_group(
         db.close()
 
 
+async def process_due_ack_retries(
+    *,
+    limit: int = 500,
+) -> int:
+    keys = get_due_ack_retry_keys(
+        limit=limit
+    )
+
+    processed = 0
+
+    for key in keys:
+        retry = get_pending_ack_retry(
+            key
+        )
+
+        if retry is None:
+            remove_ack_retry_key(
+                key
+            )
+            continue
+
+        sent = await send_group_message(
+            destination_jid=
+                retry.source_jid,
+            instance=
+                retry.instance,
+            text=
+                retry.text,
+            log_label=
+                "ACK agrupado reintentado",
+        )
+
+        if sent:
+            remove_ack_retry_key(
+                key
+            )
+
+            processed += 1
+
+            logger.info(
+                "ACK agrupado reenviado "
+                "correctamente "
+                "retry_id=%s "
+                "attempt=%s "
+                "source_jid=%s",
+                retry.retry_id,
+                retry.attempt + 1,
+                retry.source_jid,
+            )
+
+            continue
+
+        next_attempt = (
+            retry.attempt + 1
+        )
+
+        if next_attempt >= len(
+            ACK_RETRY_DELAYS
+        ):
+            logger.error(
+                "ACK agrupado agotó "
+                "reintentos "
+                "retry_id=%s "
+                "attempts=%s "
+                "source_jid=%s",
+                retry.retry_id,
+                next_attempt,
+                retry.source_jid,
+            )
+
+            remove_ack_retry_key(
+                key
+            )
+
+            continue
+
+        remove_ack_retry_key(
+            key
+        )
+
+        due_at = enqueue_ack_retry(
+            PendingAckRetry(
+                retry_id=
+                    retry.retry_id,
+                instance=
+                    retry.instance,
+                source_jid=
+                    retry.source_jid,
+                text=
+                    retry.text,
+                attempt=
+                    next_attempt,
+            )
+        )
+
+        logger.warning(
+            "ACK agrupado seguirá "
+            "en retry "
+            "retry_id=%s "
+            "attempt=%s "
+            "due_at=%s",
+            retry.retry_id,
+            next_attempt,
+            due_at,
+        )
+
+    return processed
+
+
 async def process_due_messages(
     *,
     limit: int = 5000,
@@ -433,14 +579,34 @@ async def process_due_messages(
     return processed
 
 
+async def run_worker() -> tuple[int, int]:
+    messages_processed = (
+        await process_due_messages()
+    )
+
+    ack_retries_processed = (
+        await process_due_ack_retries()
+    )
+
+    return (
+        messages_processed,
+        ack_retries_processed,
+    )
+
+
 def main() -> None:
-    processed = asyncio.run(
-        process_due_messages()
+    (
+        messages_processed,
+        ack_retries_processed,
+    ) = asyncio.run(
+        run_worker()
     )
 
     print(
-        f"DELAYED_MESSAGES_PROCESSED="
-        f"{processed}"
+        "DELAYED_MESSAGES_PROCESSED="
+        f"{messages_processed} "
+        "ACK_RETRIES_PROCESSED="
+        f"{ack_retries_processed}"
     )
 
 
