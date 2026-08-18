@@ -239,38 +239,6 @@ def register_client_message(
             )
             continue
 
-        duplicate_since = (
-            datetime.now(UTC)
-            - timedelta(hours=24)
-        )
-
-        recent_request = db.scalar(
-            select(Request)
-            .where(
-                Request.client_id == client.id,
-                Request.identifier_key
-                == identifier_key,
-                Request.received_at
-                >= duplicate_since,
-            )
-            .order_by(
-                Request.received_at.desc(),
-                Request.id.desc(),
-            )
-            .limit(1)
-        )
-
-        if recent_request is not None:
-            if (
-                recent_request.status
-                in IN_PROGRESS_REQUEST_STATUSES
-            ):
-                result                    .recent_in_progress_identifiers                    .append(identifier_key)
-            else:
-                result                    .recent_processed_identifiers                    .append(identifier_key)
-
-            continue
-
         if parsed.identifier_type == "RFC":
             request_status = "PENDING_BATCH"
             rfc = parsed.rfc

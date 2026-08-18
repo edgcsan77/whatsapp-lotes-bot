@@ -297,7 +297,7 @@ def test_late_provider_response_matches_timeout() -> None:
         assert refreshed.result_code == "OK"
 
 
-def test_same_rfc_across_sent_and_timeout_matches_both() -> None:
+def test_same_rfc_across_batches_matches_latest_batch_only() -> None:
     engine = create_engine(
         "sqlite+pysqlite:///:memory:"
     )
@@ -360,14 +360,38 @@ def test_same_rfc_across_sent_and_timeout_matches_both() -> None:
             )
         )
 
-        assert set(
-            result.matched_request_ids
-        ) == {
-            old_request.id,
-            new_request.id,
-        }
+        assert result.matched_request_ids == [
+            new_request.id
+        ]
 
-        assert len(groups) == 2
+        assert len(groups) == 1
+
+        db.expire_all()
+
+        refreshed_old = db.get(
+            Request,
+            old_request.id,
+        )
+
+        refreshed_new = db.get(
+            Request,
+            new_request.id,
+        )
+
+        assert refreshed_old is not None
+        assert refreshed_new is not None
+
+        assert refreshed_old.status == (
+            "PROVIDER_TIMEOUT"
+        )
+
+        assert refreshed_old.idcif is None
+
+        assert refreshed_new.status == (
+            "RESULT_RECEIVED"
+        )
+
+        assert refreshed_new.idcif == IDCIF
 
 
 def test_batch_send_failed_is_not_matched() -> None:

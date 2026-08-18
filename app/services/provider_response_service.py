@@ -12,6 +12,7 @@ from app.integrations.evolution_client import (
 )
 from app.models.client import Client
 from app.models.provider import Provider
+from app.models.batch import Batch, BatchItem
 from app.models.request import Request
 from app.services.provider_parser import (
     ParsedProviderResult,
@@ -126,34 +127,59 @@ def find_pending_requests_for_result(
     provider_id: int,
     rfc: str,
 ) -> list[Request]:
-    # Solamente estados que realmente llegaron
-    # al proveedor.
-    #
-    # BATCH_SEND_FAILED NO entra aquí porque
-    # ese lote no fue enviado correctamente.
     pending_statuses = (
         "SENT_TO_PROVIDER",
         "PROVIDER_TIMEOUT",
     )
 
-    # Un mismo RFC puede estar pendiente para
-    # varios clientes e incluso haber aparecido
-    # en más de un lote.
+    # Una respuesta del proveedor solamente trae
+    # el RFC, no el batch_id.
     #
-    # Como la respuesta del proveedor solamente
-    # identifica el RFC y no el batch_id, una
-    # respuesta válida debe satisfacer TODAS las
-    # solicitudes pendientes de ese RFC para el
-    # mismo proveedor.
+    # Si ese RFC fue solicitado nuevamente días
+    # después, no debemos aplicar la respuesta
+    # nueva a solicitudes pendientes de lotes
+    # históricos.
+    #
+    # Seleccionamos el lote pendiente más reciente.
+    # Si varios clientes tienen el mismo RFC dentro
+    # de ese lote, todos reciben el resultado.
+    latest_batch_id = db.scalar(
+        select(BatchItem.batch_id)
+        .join(
+            Request,
+            Request.id == BatchItem.request_id,
+        )
+        .join(
+            Batch,
+            Batch.id == BatchItem.batch_id,
+        )
+        .where(
+            Request.provider_id == provider_id,
+            Request.rfc == rfc,
+            Request.status.in_(pending_statuses),
+        )
+        .order_by(
+            Batch.sent_at.desc(),
+            Batch.id.desc(),
+        )
+        .limit(1)
+    )
+
+    if latest_batch_id is None:
+        return []
+
     return list(
         db.scalars(
             select(Request)
+            .join(
+                BatchItem,
+                BatchItem.request_id == Request.id,
+            )
             .where(
                 Request.provider_id == provider_id,
                 Request.rfc == rfc,
-                Request.status.in_(
-                    pending_statuses
-                ),
+                Request.status.in_(pending_statuses),
+                BatchItem.batch_id == latest_batch_id,
             )
             .order_by(
                 Request.sent_to_provider_at.asc(),

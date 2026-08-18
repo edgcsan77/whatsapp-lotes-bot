@@ -355,10 +355,10 @@ async def notify_curp_lookup_failed(
     ).strip().upper()
 
     text = (
-        "⚠️ No fue posible procesar la CURP.\n\n"
-        f"{curp}\n\n"
-        "Verifica que esté escrita correctamente "
-        "e intenta nuevamente."
+        "⚠️ No fue posible generar el RFC\n\n"
+        f"CURP: {curp}\n\n"
+        "No se pudo obtener el RFC para esta CURP. "
+        "Puedes intentar nuevamente más tarde."
     )
 
     try:
