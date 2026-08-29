@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     admin_session_secret: str
     whatsapp_admin_jids: str = ""
 
+    # constancia-backend-rfc.
+    # Permanecen opcionales hasta activar
+    # el worker PDF.
+    pdf_backend_url: str = ""
+    pdf_backend_token: str = ""
+    pdf_worker_limit: int = 3
+
     default_batch_interval_minutes: int = 15
     default_batch_max_items: int = 50
     default_daily_cutoff_time: str = "23:30"

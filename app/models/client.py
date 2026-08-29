@@ -55,6 +55,36 @@ class Client(Base):
         default=Decimal("0.00"),
     )
 
+    # Precio del servicio actual:
+    # localización RFC + IDCIF.
+    #
+    # Se conserva price_per_request para no
+    # modificar clientes ni cortes existentes.
+
+    generic_price_per_request: Mapped[
+        Decimal
+    ] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+    )
+
+    generic_pdf_enabled: Mapped[
+        bool
+    ] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+
+    idcif_pdf_enabled: Mapped[
+        bool
+    ] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+
     batch_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

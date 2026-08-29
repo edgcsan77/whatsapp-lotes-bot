@@ -22,7 +22,11 @@ class Request(Base):
         UniqueConstraint(
             "whatsapp_message_id",
             "identifier_key",
-            name="uq_requests_message_identifier",
+            "service_type",
+            name=(
+                "uq_requests_message_"
+                "identifier_service"
+            ),
         ),
     )
 
@@ -83,6 +87,37 @@ class Request(Base):
         nullable=False,
     )
 
+    # RFC_IDCIF:
+    # flujo de localización actual.
+    #
+    # RFC_GENERIC:
+    # constancia solicitada mediante -G.
+    service_type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="RFC_IDCIF",
+        index=True,
+    )
+
+    # TEXT para el flujo actual.
+    # PDF para genéricos o clientes con
+    # constancia automática por IDCIF.
+    delivery_format: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="TEXT",
+    )
+
+    # CURP_NL_SEPOMEX_NO_CHECKID
+    # RFC_CHECKID
+    # DIRECT_RFC_IDCIF
+    lookup_route: Mapped[
+        str | None
+    ] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
     # Será NULL cuando la entrada original sea una CURP
     # pendiente de consulta y conversión con Moffin.
     rfc: Mapped[str | None] = mapped_column(
@@ -121,6 +156,63 @@ class Request(Base):
 
     result_code: Mapped[str | None] = mapped_column(
         String(40),
+        nullable=True,
+    )
+
+    pdf_status: Mapped[
+        str | None
+    ] = mapped_column(
+        String(30),
+        nullable=True,
+        index=True,
+    )
+
+    pdf_url: Mapped[
+        str | None
+    ] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    pdf_filename: Mapped[
+        str | None
+    ] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    pdf_error: Mapped[
+        str | None
+    ] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    pdf_attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    pdf_started_at: Mapped[
+        datetime | None
+    ] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    pdf_next_attempt_at: Mapped[
+        datetime | None
+    ] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+
+    pdf_delivered_message_id: Mapped[
+        str | None
+    ] = mapped_column(
+        String(200),
         nullable=True,
     )
 

@@ -139,3 +139,152 @@ async def send_text_message(
         message_id=message_id,
         raw_response=response_data,
     )
+
+
+
+async def send_document_message(
+    *,
+    destination_jid: str,
+    media_url: str,
+    file_name: str,
+    instance: str | None = None,
+) -> EvolutionSendResult:
+    destination_jid = normalize_jid(
+        destination_jid
+    )
+
+    normalized_media_url = str(
+        media_url or ""
+    ).strip()
+
+    normalized_file_name = str(
+        file_name or ""
+    ).strip()
+
+    if not normalized_media_url:
+        raise ValueError(
+            "DOCUMENT_MEDIA_URL_EMPTY"
+        )
+
+    if not normalized_file_name:
+        raise ValueError(
+            "DOCUMENT_FILE_NAME_EMPTY"
+        )
+
+    instance_name = (
+        str(
+            instance
+            or settings.evolution_instance
+        )
+        .strip()
+    )
+
+    if not instance_name:
+        raise ValueError(
+            "EVOLUTION_INSTANCE_EMPTY"
+        )
+
+    base_url = str(
+        settings.evolution_base_url
+    ).rstrip("/")
+
+    url = (
+        f"{base_url}/message/sendMedia/"
+        f"{instance_name}"
+    )
+
+    payload = {
+        "number": destination_jid,
+        "mediatype": "document",
+        "media": normalized_media_url,
+        "fileName": normalized_file_name,
+    }
+
+    headers = {
+        "apikey":
+            settings.evolution_api_key,
+        "Content-Type":
+            "application/json",
+    }
+
+    timeout = httpx.Timeout(
+        connect=10.0,
+        read=240.0,
+        write=30.0,
+        pool=10.0,
+    )
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout
+        ) as client:
+            response = await client.post(
+                url,
+                headers=headers,
+                json=payload,
+            )
+
+    except httpx.HTTPError as error:
+        logger.exception(
+            "Evolution sendMedia "
+            "connection error"
+        )
+
+        raise EvolutionAPIError(
+            "EVOLUTION_MEDIA_CONNECTION_ERROR"
+        ) from error
+
+    try:
+        response_data = response.json()
+    except ValueError:
+        response_data = {
+            "raw_text": response.text,
+        }
+
+    if not isinstance(
+        response_data,
+        dict,
+    ):
+        response_data = {
+            "data": response_data,
+        }
+
+    if response.status_code >= 400:
+        logger.error(
+            "Evolution sendMedia failed: "
+            "status=%s response=%s",
+            response.status_code,
+            response_data,
+        )
+
+        raise EvolutionAPIError(
+            "EVOLUTION_MEDIA_HTTP_"
+            f"{response.status_code}"
+        )
+
+    message_id = None
+
+    key = response_data.get(
+        "key"
+    )
+
+    if isinstance(key, dict):
+        message_id = str(
+            key.get("id")
+            or ""
+        ).strip() or None
+
+    if message_id is None:
+        message_id = str(
+            response_data.get(
+                "messageId"
+            )
+            or response_data.get("id")
+            or ""
+        ).strip() or None
+
+    return EvolutionSendResult(
+        ok=True,
+        message_id=message_id,
+        raw_response=response_data,
+    )
