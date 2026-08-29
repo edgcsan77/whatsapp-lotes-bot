@@ -1,0 +1,23 @@
+[Unit]
+Description=Generar y entregar constancias PDF de WhatsApp Lotes
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+Requires=postgresql.service redis-server.service
+
+[Service]
+Type=oneshot
+User=whatsapp-lotes
+Group=whatsapp-lotes
+WorkingDirectory=/opt/whatsapp-lotes-bot
+EnvironmentFile=/opt/whatsapp-lotes-bot/.env
+Environment=PYTHONPATH=/opt/whatsapp-lotes-bot
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/opt/whatsapp-lotes-bot/venv/bin/python /opt/whatsapp-lotes-bot/scripts/process_pending_pdfs.py --limit 3
+
+TimeoutStartSec=900
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true

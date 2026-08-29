@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 from app.models.client import Client
 from app.models.request import Request
 from app.services.message_parser import parse_client_message
+from app.services.generic_request_parser import (
+    extract_generic_requests,
+    strip_generic_requests,
+)
 from app.services.curp_validator import (
     extract_curp_like_candidates,
     validate_curp_format,
@@ -65,6 +69,11 @@ class RegistrationResult:
     invalid_rfc_reasons: dict[str, str] = field(
         default_factory=dict
     )
+    generic_not_enabled_identifiers: list[
+        str
+    ] = field(
+        default_factory=list
+    )
     no_identifiers_found: bool = False
 
     @property
@@ -85,6 +94,9 @@ IN_PROGRESS_REQUEST_STATUSES = {
     "SENT_TO_PROVIDER",
     "PROVIDER_TIMEOUT",
     "RESULT_RECEIVED",
+    "PENDING_PDF",
+    "PDF_GENERATING",
+    "PDF_RETRY",
 }
 
 
@@ -126,7 +138,7 @@ def get_client_by_source_jid(
     return client
 
 
-def register_client_message(
+def _register_client_message_legacy(
     db: Session,
     message: IncomingWhatsAppMessage,
 ) -> RegistrationResult:
@@ -358,6 +370,295 @@ def register_client_message(
         result.created_ids.append(request.id)
         result.created_identifiers.append(
             identifier_key
+        )
+
+    db.commit()
+
+    return result
+
+
+def register_client_message(
+    db: Session,
+    message: IncomingWhatsAppMessage,
+) -> RegistrationResult:
+    message_id = normalize_required(
+        message.message_id,
+        "MESSAGE_ID",
+    )
+
+    source_jid = normalize_required(
+        message.source_jid,
+        "SOURCE_JID",
+    )
+
+    client = get_client_by_source_jid(
+        db=db,
+        source_jid=source_jid,
+    )
+
+    original_text = str(
+        message.text or ""
+    )
+
+    generic_items = (
+        extract_generic_requests(
+            original_text
+        )
+    )
+
+    if generic_items:
+        localization_text = (
+            strip_generic_requests(
+                original_text
+            )
+        )
+
+        legacy_message = (
+            IncomingWhatsAppMessage(
+                message_id=
+                    message.message_id,
+                source_jid=
+                    message.source_jid,
+                sender_jid=
+                    message.sender_jid,
+                sender_name=
+                    message.sender_name,
+                text=
+                    localization_text,
+            )
+        )
+
+    else:
+        legacy_message = message
+
+    # Todo mensaje sin -G conserva exactamente
+    # la función anterior.
+    result = (
+        _register_client_message_legacy(
+            db,
+            legacy_message,
+        )
+    )
+
+    result.parsed_count += len(
+        generic_items
+    )
+
+    if generic_items:
+        result.no_identifiers_found = False
+
+    # Snapshot del permiso de entrega IDCIF.
+    #
+    # Las solicitudes normales siguen usando
+    # el registro anterior; únicamente se fija
+    # PDF/TEXT al momento de crearlas.
+    if result.created_ids:
+        created_requests = list(
+            db.scalars(
+                select(Request).where(
+                    Request.id.in_(
+                        result.created_ids
+                    )
+                )
+            )
+        )
+
+        for request_item in (
+            created_requests
+        ):
+            request_item.service_type = (
+                request_item.service_type
+                or "RFC_IDCIF"
+            )
+
+            if generic_items:
+                request_item.original_text = (
+                    original_text
+                )
+
+            if (
+                request_item.service_type
+                == "RFC_IDCIF"
+                and client.idcif_pdf_enabled
+            ):
+                request_item.delivery_format = (
+                    "PDF"
+                )
+
+                request_item.lookup_route = (
+                    "DIRECT_RFC_IDCIF"
+                )
+
+        db.commit()
+
+    if not generic_items:
+        return result
+
+    sender_jid = (
+        str(
+            message.sender_jid
+        ).strip()
+        if message.sender_jid
+        else None
+    )
+
+    sender_name = (
+        str(
+            message.sender_name
+        ).strip()
+        if message.sender_name
+        else None
+    )
+
+    now = datetime.now(UTC)
+
+    for generic in generic_items:
+        identifier = (
+            generic.identifier
+            .strip()
+            .upper()
+        )
+
+        display_identifier = (
+            generic.display_identifier
+        )
+
+        if (
+            generic.identifier_type
+            == "CURP"
+        ):
+            valid, reason = (
+                validate_curp_format(
+                    identifier
+                )
+            )
+
+            if not valid:
+                if (
+                    identifier
+                    not in result.invalid_curps
+                ):
+                    result.invalid_curps.append(
+                        identifier
+                    )
+
+                result.invalid_curp_reasons[
+                    identifier
+                ] = reason
+
+                continue
+
+        else:
+            valid, reason = (
+                validate_rfc_format(
+                    identifier
+                )
+            )
+
+            if not valid:
+                if (
+                    identifier
+                    not in result.invalid_rfcs
+                ):
+                    result.invalid_rfcs.append(
+                        identifier
+                    )
+
+                result.invalid_rfc_reasons[
+                    identifier
+                ] = reason
+
+                continue
+
+        if not client.generic_pdf_enabled:
+            result\
+                .generic_not_enabled_identifiers\
+                .append(
+                    display_identifier
+                )
+
+            continue
+
+        existing_request_id = db.scalar(
+            select(Request.id).where(
+                Request.whatsapp_message_id
+                == message_id,
+                Request.identifier_key
+                == identifier,
+                Request.service_type
+                == "RFC_GENERIC",
+            )
+        )
+
+        if existing_request_id is not None:
+            result.duplicate_identifiers.append(
+                display_identifier
+            )
+
+            continue
+
+        request_item = Request(
+            client_id=client.id,
+            provider_id=None,
+            whatsapp_message_id=
+                message_id,
+            identifier_key=
+                identifier,
+            source_jid=
+                source_jid,
+            sender_jid=
+                sender_jid,
+            sender_name=
+                sender_name,
+            original_text=
+                original_text,
+            input_type=
+                generic.identifier_type,
+            service_type=
+                "RFC_GENERIC",
+            delivery_format=
+                "PDF",
+            lookup_route=
+                generic.lookup_route,
+            rfc=
+                generic.rfc,
+            original_curp=
+                generic.curp,
+            detected_name=None,
+            status=
+                "PENDING_PDF",
+            pdf_status=
+                "PENDING",
+            pdf_next_attempt_at=
+                now,
+            sale_price=(
+                client
+                .generic_price_per_request
+                or Decimal("0.00")
+            ),
+        )
+
+        try:
+            with db.begin_nested():
+                db.add(
+                    request_item
+                )
+
+                db.flush()
+
+        except IntegrityError:
+            result.duplicate_identifiers.append(
+                display_identifier
+            )
+
+            continue
+
+        result.created_ids.append(
+            request_item.id
+        )
+
+        result.created_identifiers.append(
+            display_identifier
         )
 
     db.commit()

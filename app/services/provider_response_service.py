@@ -44,6 +44,9 @@ class ProviderProcessingResult:
     delivered_request_ids: list[int] = field(
         default_factory=list
     )
+    queued_pdf_request_ids: list[int] = field(
+        default_factory=list
+    )
     delivery_failed_request_ids: list[int] = field(
         default_factory=list
     )
@@ -205,6 +208,10 @@ def find_already_processed_request(
             Request.status.in_(
                 [
                     "RESULT_RECEIVED",
+                    "PENDING_PDF",
+                    "PDF_GENERATING",
+                    "PDF_RETRY",
+                    "PDF_FAILED",
                     "DELIVERY_FAILED",
                     "DELIVERED",
                 ]
@@ -215,7 +222,7 @@ def find_already_processed_request(
     )
 
 
-def register_provider_results(
+def _register_provider_results_legacy(
     db: Session,
     *,
     provider: Provider,
@@ -342,6 +349,246 @@ def register_provider_results(
         )
 
     return result, delivery_groups
+
+
+def register_provider_results(
+    db: Session,
+    *,
+    provider: Provider,
+    provider_message_id: str,
+    text: str,
+) -> tuple[
+    ProviderProcessingResult,
+    list[ClientDeliveryGroup],
+]:
+    processing_result, delivery_groups = (
+        _register_provider_results_legacy(
+            db,
+            provider=provider,
+            provider_message_id=
+                provider_message_id,
+            text=text,
+        )
+    )
+
+    if not (
+        processing_result
+        .matched_request_ids
+    ):
+        return (
+            processing_result,
+            delivery_groups,
+        )
+
+    now = datetime.now(UTC)
+
+    pdf_request_ids: set[int] = set()
+
+    for request_id in (
+        processing_result
+        .matched_request_ids
+    ):
+        request_item = db.get(
+            Request,
+            request_id,
+        )
+
+        if request_item is None:
+            continue
+
+        wants_pdf = (
+            str(
+                request_item
+                .delivery_format
+                or ""
+            )
+            .strip()
+            .upper()
+            == "PDF"
+            and str(
+                request_item.result_code
+                or ""
+            )
+            .strip()
+            .upper()
+            == "OK"
+            and bool(
+                str(
+                    request_item.idcif
+                    or ""
+                ).strip()
+            )
+        )
+
+        if not wants_pdf:
+            continue
+
+        request_item.status = (
+            "PENDING_PDF"
+        )
+
+        request_item.pdf_status = (
+            "PENDING"
+        )
+
+        request_item.lookup_route = (
+            "DIRECT_RFC_IDCIF"
+        )
+
+        request_item.pdf_error = None
+        request_item.pdf_started_at = None
+
+        request_item.pdf_next_attempt_at = (
+            now
+        )
+
+        pdf_request_ids.add(
+            request_item.id
+        )
+
+        processing_result\
+            .queued_pdf_request_ids\
+            .append(
+                request_item.id
+            )
+
+    if not pdf_request_ids:
+        return (
+            processing_result,
+            delivery_groups,
+        )
+
+    db.commit()
+
+    filtered_groups: list[
+        ClientDeliveryGroup
+    ] = []
+
+    for group in delivery_groups:
+        remaining_ids = tuple(
+            request_id
+            for request_id
+            in group.request_ids
+            if request_id
+            not in pdf_request_ids
+        )
+
+        if not remaining_ids:
+            continue
+
+        if (
+            len(remaining_ids)
+            == len(group.request_ids)
+        ):
+            filtered_groups.append(
+                group
+            )
+
+            continue
+
+        remaining_results: list[
+            ParsedProviderResult
+        ] = []
+
+        for request_id in remaining_ids:
+            request_item = db.get(
+                Request,
+                request_id,
+            )
+
+            if request_item is None:
+                continue
+
+            parsed_candidates = (
+                parse_provider_message(
+                    request_item
+                    .provider_result
+                    or ""
+                )
+            )
+
+            selected = next(
+                (
+                    candidate
+                    for candidate
+                    in parsed_candidates
+                    if candidate.rfc
+                    == request_item.rfc
+                ),
+                None,
+            )
+
+            if selected is None:
+                selected = (
+                    ParsedProviderResult(
+                        rfc=str(
+                            request_item.rfc
+                            or request_item
+                            .identifier_key
+                            or ""
+                        )
+                        .strip()
+                        .upper(),
+                        raw_value=(
+                            str(
+                                request_item.idcif
+                                or ""
+                            ).strip()
+                            or None
+                        ),
+                        idcif=(
+                            str(
+                                request_item.idcif
+                                or ""
+                            ).strip()
+                            or None
+                        ),
+                        result_code=str(
+                            request_item
+                            .result_code
+                            or "RFC_ONLY"
+                        )
+                        .strip()
+                        .upper(),
+                        raw_line=(
+                            request_item
+                            .provider_result
+                            or ""
+                        ),
+                    )
+                )
+
+            remaining_results.append(
+                selected
+            )
+
+        if not remaining_results:
+            continue
+
+        filtered_groups.append(
+            ClientDeliveryGroup(
+                client_id=
+                    group.client_id,
+                client_name=
+                    group.client_name,
+                client_jid=
+                    group.client_jid,
+                request_ids=
+                    remaining_ids,
+                text=(
+                    build_client_result_message(
+                        remaining_results
+                    )
+                ),
+            )
+        )
+
+    return (
+        processing_result,
+        filtered_groups,
+    )
+
+
 
 
 async def deliver_provider_results(
