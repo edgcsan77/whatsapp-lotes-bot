@@ -164,6 +164,18 @@
         <article class="metric-card">
             <div>
                 <div class="metric-label">
+                    RFC genéricos
+                </div>
+
+                <div class="metric-value">
+                    {{ cutoff_summary.generic }}
+                </div>
+            </div>
+        </article>
+
+        <article class="metric-card">
+            <div>
+                <div class="metric-label">
                     Solicitudes
                 </div>
 
@@ -258,6 +270,7 @@
                         <th>Período</th>
                         <th>Solicitudes</th>
                         <th>IDCIF</th>
+                        <th>Genéricos</th>
                         <th>Entregadas</th>
                         <th>Pendientes</th>
                         <th>Fallidas</th>
@@ -308,6 +321,12 @@
                         <td>
                             <strong>
                                 {{ cutoff.idcif_count }}
+                            </strong>
+                        </td>
+
+                        <td>
+                            <strong>
+                                {{ cutoff.generic_count }}
                             </strong>
                         </td>
 

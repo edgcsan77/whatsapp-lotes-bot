@@ -18,6 +18,7 @@ DELIVERED_REQUEST_STATUSES = {
 
 FAILED_REQUEST_STATUSES = {
     "CURP_LOOKUP_FAILED",
+    "PDF_FAILED",
 }
 
 
@@ -44,6 +45,7 @@ class CutoffTotals:
     rfc_count: int
     curp_count: int
     total_amount: Decimal
+    generic_count: int = 0
 
 
 def parse_cutoff_time(value: str) -> time:
@@ -284,6 +286,7 @@ def calculate_cutoff_totals(
 ) -> CutoffTotals:
     delivered_count = 0
     idcif_count = 0
+    generic_count = 0
     failed_count = 0
     pending_count = 0
     rfc_count = 0
@@ -295,10 +298,22 @@ def calculate_cutoff_totals(
             request.status or ""
         ).strip().upper()
 
+        service_type = str(
+            getattr(
+                request,
+                "service_type",
+                "RFC_IDCIF",
+            )
+            or "RFC_IDCIF"
+        ).strip().upper()
+
         if status in DELIVERED_REQUEST_STATUSES:
             delivered_count += 1
 
-            if (
+            if service_type == "RFC_GENERIC":
+                generic_count += 1
+
+            elif (
                 str(request.result_code or "")
                 .strip()
                 .upper()
@@ -306,8 +321,10 @@ def calculate_cutoff_totals(
                 and str(request.idcif or "").strip()
             ):
                 idcif_count += 1
+
         elif status in FAILED_REQUEST_STATUSES:
             failed_count += 1
+
         else:
             pending_count += 1
 
@@ -320,6 +337,9 @@ def calculate_cutoff_totals(
         else:
             rfc_count += 1
 
+        # Conserva la semántica actual del corte:
+        # el importe suma el precio capturado en
+        # cada solicitud, sin cambiar reglas previas.
         total_amount += Decimal(
             request.sale_price
             or Decimal("0.00")
@@ -336,7 +356,10 @@ def calculate_cutoff_totals(
         total_amount=total_amount.quantize(
             Decimal("0.01")
         ),
+        generic_count=generic_count,
     )
+
+
 
 
 def find_existing_cutoff(
@@ -419,6 +442,9 @@ def create_daily_cutoff(
         idcif_count=(
             totals.idcif_count
         ),
+        generic_count=(
+            totals.generic_count
+        ),
         delivered_count=(
             totals.delivered_count
         ),
@@ -500,11 +526,15 @@ def render_daily_cutoff_message(
         f"CORTE - {date_text}         "
         "🧾 Resumen del día\n\n\n"
         f"📄 *Total de IDCIF: "
-        f"{totals.idcif_count}*\n\n\n"
+        f"{totals.idcif_count}*\n"
+        f"🧾 *Total de RFC genéricos: "
+        f"{totals.generic_count}*\n\n\n"
         "Si algún rastreo se envió doble, "
         "favor de aclarar para que podamos "
         "ajustar el corte."
     )
+
+
 
 
 async def send_daily_cutoff(

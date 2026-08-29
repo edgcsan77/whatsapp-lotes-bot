@@ -30,7 +30,8 @@
             {% elif request_item.status in [
                 "CURP_LOOKUP_FAILED",
                 "BATCH_SEND_FAILED",
-                "DELIVERY_FAILED"
+                "DELIVERY_FAILED",
+                "PDF_FAILED"
             ] %}
             <span class="detail-status detail-status-bad">
                 {{ status_label }}
@@ -81,6 +82,27 @@
                         <span>Tipo de entrada</span>
                         <strong>
                             {{ request_item.input_type }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Servicio</span>
+                        <strong>
+                            {{ service_type_label }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Entrega</span>
+                        <strong>
+                            {{ delivery_format_label }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Ruta</span>
+                        <strong class="mono-value">
+                            {{ request_item.lookup_route or "—" }}
                         </strong>
                     </div>
 
@@ -171,6 +193,65 @@
                 </div>
             </section>
 
+
+            {% if request_item.delivery_format == "PDF" or request_item.pdf_status %}
+            <section class="card">
+                <h2>
+                    Constancia PDF
+                </h2>
+
+                <div class="detail-grid">
+                    <div class="detail-field">
+                        <span>Estado PDF</span>
+                        <strong>
+                            {{ request_item.pdf_status or "—" }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Intentos</span>
+                        <strong>
+                            {{ request_item.pdf_attempts }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>Archivo</span>
+                        <strong class="mono-value">
+                            {{ request_item.pdf_filename or "—" }}
+                        </strong>
+                    </div>
+
+                    <div class="detail-field">
+                        <span>ID de entrega</span>
+                        <strong class="mono-value">
+                            {{ request_item.pdf_delivered_message_id or "—" }}
+                        </strong>
+                    </div>
+                </div>
+
+                {% if request_item.pdf_url %}
+                <p>
+                    <a
+                        href="{{ request_item.pdf_url }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="table-link"
+                    >
+                        Abrir PDF almacenado
+                    </a>
+                </p>
+                {% endif %}
+
+                {% if request_item.pdf_error %}
+                <div class="detail-text-block">
+                    <span>Último error PDF</span>
+                    <pre>{{ request_item.pdf_error }}</pre>
+                </div>
+                {% endif %}
+            </section>
+            {% endif %}
+
             <section class="card">
                 <h2>
                     Mensaje original
@@ -258,7 +339,26 @@
 
                 <div class="admin-actions">
 
-                    {% if (
+                    {% if request_item.delivery_format == "PDF" and request_item.pdf_url %}
+                    <form
+                        method="post"
+                        action="/panel/requests/{{ request_item.id }}/resend"
+                        onsubmit="return confirm('¿Reenviar este PDF al cliente?');"
+                    >
+                        <input
+                            type="hidden"
+                            name="csrf_token"
+                            value="{{ csrf_token }}"
+                        >
+
+                        <button
+                            type="submit"
+                            class="button-secondary"
+                        >
+                            Reenviar PDF
+                        </button>
+                    </form>
+                    {% elif (
                         request_item.provider_result
                         or request_item.result_code
                     ) %}
@@ -278,6 +378,24 @@
                             class="button-secondary"
                         >
                             Reenviar resultado
+                        </button>
+                    </form>
+                    {% endif %}
+
+                    {% if request_item.status == "PDF_FAILED" %}
+                    <form
+                        method="post"
+                        action="/panel/requests/{{ request_item.id }}/retry-pdf"
+                        onsubmit="return confirm('¿Programar nuevamente la generación de este PDF?');"
+                    >
+                        <input
+                            type="hidden"
+                            name="csrf_token"
+                            value="{{ csrf_token }}"
+                        >
+
+                        <button type="submit">
+                            Reprocesar PDF
                         </button>
                     </form>
                     {% endif %}
@@ -325,6 +443,12 @@
                             == "DELIVERY_FAILED"
                         or request_item.status
                             == "CURP_LOOKUP_FAILED"
+                        or request_item.status
+                            == "PDF_FAILED"
+                        or (
+                            request_item.delivery_format == "PDF"
+                            and request_item.pdf_url
+                        )
                     ) %}
                     <p class="muted">
                         No hay acciones disponibles

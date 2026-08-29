@@ -6,7 +6,7 @@
         <h1>Clientes</h1>
         <p>
             Administra grupos y chats autorizados,
-            precios, lotes y cortes diarios.
+            precios, constancias PDF y cortes diarios.
         </p>
     </header>
 
@@ -41,9 +41,9 @@
                     <tr>
                         <th>Cliente</th>
                         <th>JID</th>
-                        <th>Precio</th>
-                        <th>Hechas</th>
-
+                        <th>Precios</th>
+                        <th>Entregadas</th>
+                        <th>Constancias PDF</th>
                         <th>Corte diario</th>
                         <th>Estado</th>
                         <th>Acciones</th>
@@ -86,6 +86,9 @@
                             </td>
 
                             <td>
+                                <label class="muted">
+                                    RFC IDCIF
+                                </label>
                                 <input
                                     name="price_per_request"
                                     type="number"
@@ -94,17 +97,69 @@
                                     value="{{ client.price_per_request }}"
                                     required
                                 >
+
+                                <label class="muted">
+                                    RFC genérico
+                                </label>
+                                <input
+                                    name="generic_price_per_request"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value="{{ client.generic_price_per_request }}"
+                                    required
+                                >
                             </td>
 
                             <td>
-                                <strong>
-                                    {{
-                                        client_request_counts.get(
-                                            client.id,
-                                            0
-                                        )
-                                    }}
-                                </strong>
+                                <div>
+                                    IDCIF:
+                                    <strong>
+                                        {{
+                                            client_idcif_counts.get(
+                                                client.id,
+                                                0
+                                            )
+                                        }}
+                                    </strong>
+                                </div>
+                                <div>
+                                    Genérico:
+                                    <strong>
+                                        {{
+                                            client_generic_counts.get(
+                                                client.id,
+                                                0
+                                            )
+                                        }}
+                                    </strong>
+                                </div>
+                            </td>
+
+                            <td>
+                                <div class="checkbox-row">
+                                    <input
+                                        id="generic_pdf_{{ client.id }}"
+                                        name="generic_pdf_enabled"
+                                        type="checkbox"
+                                        {% if client.generic_pdf_enabled %}checked{% endif %}
+                                    >
+                                    <label for="generic_pdf_{{ client.id }}">
+                                        Genérico -G
+                                    </label>
+                                </div>
+
+                                <div class="checkbox-row">
+                                    <input
+                                        id="idcif_pdf_{{ client.id }}"
+                                        name="idcif_pdf_enabled"
+                                        type="checkbox"
+                                        {% if client.idcif_pdf_enabled %}checked{% endif %}
+                                    >
+                                    <label for="idcif_pdf_{{ client.id }}">
+                                        PDF automático IDCIF
+                                    </label>
+                                </div>
                             </td>
 
                             <input
@@ -245,6 +300,7 @@
                         <th>Cliente</th>
                         <th>Periodo cubierto</th>
                         <th>IDCIF</th>
+                        <th>Genéricos</th>
                         <th>Estado</th>
                         <th>Enviado</th>
                         <th>ID mensaje</th>
@@ -287,6 +343,12 @@
                         <td>
                             <strong>
                                 {{ cutoff.idcif_count }}
+                            </strong>
+                        </td>
+
+                        <td>
+                            <strong>
+                                {{ cutoff.generic_count }}
                             </strong>
                         </td>
 

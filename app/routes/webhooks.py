@@ -254,6 +254,9 @@ async def evolution_webhook(
                 provider_result.parsed_count,
             "matched_request_ids":
                 provider_result.matched_request_ids,
+            "queued_pdf_request_ids":
+                provider_result
+                .queued_pdf_request_ids,
             "unmatched_rfcs":
                 provider_result.unmatched_rfcs,
             "already_processed_rfcs":

@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 from app.integrations.evolution_client import (
     EvolutionAPIError,
+    send_document_message,
     send_text_message,
 )
 from app.services.batch_service import (
@@ -166,6 +167,14 @@ PANEL_STATUS_LABELS = {
         "Proveedor sin respuesta",
     "RESULT_RECEIVED":
         "Resultado recibido",
+    "PENDING_PDF":
+        "Pendiente de PDF",
+    "PDF_GENERATING":
+        "Generando PDF",
+    "PDF_RETRY":
+        "Reintentando PDF",
+    "PDF_FAILED":
+        "Error de PDF",
     "DELIVERY_FAILED":
         "Error de entrega",
     "DELIVERED":
@@ -617,7 +626,7 @@ def clients_page(
         for client in clients
     }
 
-    client_request_counts = {
+    client_idcif_counts = {
         int(client_id): int(total)
         for client_id, total in db.execute(
             select(
@@ -627,9 +636,30 @@ def clients_page(
             .where(
                 RequestModel.client_id.is_not(None),
                 RequestModel.status == "DELIVERED",
+                RequestModel.service_type
+                == "RFC_IDCIF",
                 RequestModel.result_code == "OK",
                 RequestModel.idcif.is_not(None),
                 RequestModel.idcif != "",
+            )
+            .group_by(
+                RequestModel.client_id
+            )
+        ).all()
+    }
+
+    client_generic_counts = {
+        int(client_id): int(total)
+        for client_id, total in db.execute(
+            select(
+                RequestModel.client_id,
+                func.count(RequestModel.id),
+            )
+            .where(
+                RequestModel.client_id.is_not(None),
+                RequestModel.status == "DELIVERED",
+                RequestModel.service_type
+                == "RFC_GENERIC",
             )
             .group_by(
                 RequestModel.client_id
@@ -648,8 +678,14 @@ def clients_page(
             "daily_cutoffs": daily_cutoffs,
             "client_names": client_names,
             "next_cutoffs": next_cutoffs,
+            "client_idcif_counts":
+                client_idcif_counts,
+            "client_generic_counts":
+                client_generic_counts,
+            # Alias temporal para cualquier
+            # extensión histórica del template.
             "client_request_counts":
-                client_request_counts,
+                client_idcif_counts,
             "available_timezones":
                 AVAILABLE_TIMEZONES,
             "csrf_token":
@@ -660,6 +696,8 @@ def clients_page(
     )
 
 
+
+
 @router.post("/clients/create")
 def create_client(
     request: Request,
@@ -667,6 +705,9 @@ def create_client(
     source_type: str = Form(...),
     whatsapp_jid: str = Form(...),
     price_per_request: str = Form(...),
+    generic_price_per_request: str = Form(
+        "0.00"
+    ),
     batch_interval_minutes: int = Form(...),
     batch_max_items: int = Form(...),
     daily_cutoff_time: str = Form(...),
@@ -674,6 +715,12 @@ def create_client(
     csrf_token: str = Form(...),
     batch_enabled: str | None = Form(None),
     daily_cutoff_enabled: str | None = Form(
+        None
+    ),
+    generic_pdf_enabled: str | None = Form(
+        None
+    ),
+    idcif_pdf_enabled: str | None = Form(
         None
     ),
     active: str | None = Form(None),
@@ -738,6 +785,10 @@ def create_client(
             price_per_request
         )
 
+        generic_price = parse_price(
+            generic_price_per_request
+        )
+
         validated_cutoff_time = (
             validate_cutoff_time(
                 daily_cutoff_time
@@ -760,6 +811,16 @@ def create_client(
         source_type=source_type,
         whatsapp_jid=jid,
         price_per_request=price,
+        generic_price_per_request=
+            generic_price,
+        generic_pdf_enabled=
+            checkbox_value(
+                generic_pdf_enabled
+            ),
+        idcif_pdf_enabled=
+            checkbox_value(
+                idcif_pdf_enabled
+            ),
         batch_enabled=checkbox_value(
             batch_enabled
         ),
@@ -792,6 +853,8 @@ def create_client(
     return redirect_clients(
         message="Cliente agregado correctamente."
     )
+
+
 
 
 @router.post(
@@ -884,12 +947,21 @@ def update_client(
     source_type: str = Form(...),
     whatsapp_jid: str = Form(...),
     price_per_request: str = Form(...),
+    generic_price_per_request: str = Form(
+        "0.00"
+    ),
     batch_interval_minutes: int = Form(...),
     batch_max_items: int = Form(...),
     daily_cutoff_time: str = Form(...),
     timezone: str = Form(...),
     csrf_token: str = Form(...),
     daily_cutoff_enabled: str | None = Form(
+        None
+    ),
+    generic_pdf_enabled: str | None = Form(
+        None
+    ),
+    idcif_pdf_enabled: str | None = Form(
         None
     ),
     active: str | None = Form(None),
@@ -921,16 +993,20 @@ def update_client(
         )
 
     client_before = {
-        "name":
-            client.name,
-        "source_type":
-            client.source_type,
-        "whatsapp_jid":
-            client.whatsapp_jid,
+        "name": client.name,
+        "source_type": client.source_type,
+        "whatsapp_jid": client.whatsapp_jid,
         "price_per_request":
             str(client.price_per_request),
-        "batch_enabled":
-            client.batch_enabled,
+        "generic_price_per_request":
+            str(
+                client.generic_price_per_request
+            ),
+        "generic_pdf_enabled":
+            client.generic_pdf_enabled,
+        "idcif_pdf_enabled":
+            client.idcif_pdf_enabled,
+        "batch_enabled": client.batch_enabled,
         "batch_interval_minutes":
             client.batch_interval_minutes,
         "batch_max_items":
@@ -939,15 +1015,17 @@ def update_client(
             client.daily_cutoff_enabled,
         "daily_cutoff_time":
             client.daily_cutoff_time,
-        "timezone":
-            client.timezone,
-        "active":
-            client.active,
+        "timezone": client.timezone,
+        "active": client.active,
     }
 
     try:
         price = parse_price(
             price_per_request
+        )
+
+        generic_price = parse_price(
+            generic_price_per_request
         )
 
         validated_cutoff_time = (
@@ -979,10 +1057,22 @@ def update_client(
 
     client.name = name.strip()
     client.source_type = source_type.strip()
-    client.whatsapp_jid = (
-        whatsapp_jid.strip()
-    )
+    client.whatsapp_jid = whatsapp_jid.strip()
     client.price_per_request = price
+    client.generic_price_per_request = (
+        generic_price
+    )
+    client.generic_pdf_enabled = (
+        checkbox_value(
+            generic_pdf_enabled
+        )
+    )
+    client.idcif_pdf_enabled = (
+        checkbox_value(
+            idcif_pdf_enabled
+        )
+    )
+
     # Todos los clientes participan
     # obligatoriamente en los lotes globales.
     client.batch_enabled = True
@@ -1000,24 +1090,26 @@ def update_client(
     client.daily_cutoff_time = (
         validated_cutoff_time
     )
-    client.timezone = (
-        validated_timezone
-    )
+    client.timezone = validated_timezone
     client.active = checkbox_value(
         active
     )
 
     client_after = {
-        "name":
-            client.name,
-        "source_type":
-            client.source_type,
-        "whatsapp_jid":
-            client.whatsapp_jid,
+        "name": client.name,
+        "source_type": client.source_type,
+        "whatsapp_jid": client.whatsapp_jid,
         "price_per_request":
             str(client.price_per_request),
-        "batch_enabled":
-            client.batch_enabled,
+        "generic_price_per_request":
+            str(
+                client.generic_price_per_request
+            ),
+        "generic_pdf_enabled":
+            client.generic_pdf_enabled,
+        "idcif_pdf_enabled":
+            client.idcif_pdf_enabled,
+        "batch_enabled": client.batch_enabled,
         "batch_interval_minutes":
             client.batch_interval_minutes,
         "batch_max_items":
@@ -1026,19 +1118,14 @@ def update_client(
             client.daily_cutoff_enabled,
         "daily_cutoff_time":
             client.daily_cutoff_time,
-        "timezone":
-            client.timezone,
-        "active":
-            client.active,
+        "timezone": client.timezone,
+        "active": client.active,
     }
 
     changed_fields = []
 
     for key in client_before:
-        if (
-            client_before[key]
-            != client_after[key]
-        ):
+        if client_before[key] != client_after[key]:
             changed_fields.append(
                 f"{key}: "
                 f"{client_before[key]} -> "
@@ -1077,6 +1164,8 @@ def update_client(
     return redirect_clients(
         message="Cliente actualizado correctamente."
     )
+
+
 
 
 def register_admin_audit(
@@ -1712,6 +1801,13 @@ def cutoffs_page(
             func.coalesce(
                 func.sum(
                     filtered_cutoffs_subquery
+                    .c.generic_count
+                ),
+                0,
+            ),
+            func.coalesce(
+                func.sum(
+                    filtered_cutoffs_subquery
                     .c.total_requests
                 ),
                 0,
@@ -1756,20 +1852,23 @@ def cutoffs_page(
         "idcif": int(
             summary_row[1] or 0
         ),
-        "requests": int(
+        "generic": int(
             summary_row[2] or 0
         ),
-        "delivered": int(
+        "requests": int(
             summary_row[3] or 0
         ),
-        "pending": int(
+        "delivered": int(
             summary_row[4] or 0
         ),
-        "failed": int(
+        "pending": int(
             summary_row[5] or 0
         ),
+        "failed": int(
+            summary_row[6] or 0
+        ),
         "amount": (
-            summary_row[6]
+            summary_row[7]
             or Decimal("0.00")
         ),
     }
@@ -1950,6 +2049,17 @@ def system_status_page(
             ),
         },
         {
+            "name": "Constancias PDF",
+            "description": (
+                "Genera constancias genéricas y "
+                "PDF automáticos por IDCIF."
+            ),
+            **_timer_health(
+                "whatsapp-lotes-pdf.timer",
+                "whatsapp-lotes-pdf.service",
+            ),
+        },
+        {
             "name": "Cortes",
             "description":
                 "Genera y envía los cortes diarios.",
@@ -1981,6 +2091,8 @@ def system_status_page(
                 system_healthy,
         },
     )
+
+
 
 
 @router.get("")
@@ -2996,6 +3108,111 @@ async def request_retry_delivery(
 
 
 @router.post(
+    "/requests/{request_id}/retry-pdf"
+)
+def request_retry_pdf(
+    request: Request,
+    request_id: int,
+    csrf_token: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    redirect = require_authenticated(
+        request
+    )
+
+    if redirect:
+        return redirect
+
+    if not validate_csrf(
+        request,
+        csrf_token,
+    ):
+        return RedirectResponse(
+            url=(
+                f"/panel/requests/{request_id}"
+                "?action_status=error"
+                "&action_message=CSRF%20inválido"
+            ),
+            status_code=303,
+        )
+
+    request_item = db.get(
+        RequestModel,
+        request_id,
+    )
+
+    if request_item is None:
+        return RedirectResponse(
+            url="/panel/operations",
+            status_code=303,
+        )
+
+    if (
+        str(request_item.delivery_format or "")
+        .strip()
+        .upper()
+        != "PDF"
+        or request_item.status != "PDF_FAILED"
+    ):
+        return RedirectResponse(
+            url=(
+                f"/panel/requests/{request_id}"
+                "?action_status=error"
+                "&action_message="
+                "La%20solicitud%20no%20está%20en%20PDF_FAILED"
+            ),
+            status_code=303,
+        )
+
+    previous_error = str(
+        request_item.pdf_error
+        or ""
+    )[:1000]
+
+    request_item.status = "PENDING_PDF"
+    request_item.pdf_status = "PENDING"
+    request_item.pdf_attempts = 0
+    request_item.pdf_error = None
+    request_item.pdf_started_at = None
+    request_item.pdf_next_attempt_at = (
+        datetime.now(UTC)
+    )
+    request_item.pdf_url = None
+    request_item.pdf_filename = None
+    request_item.pdf_delivered_message_id = None
+    request_item.delivered_at = None
+
+    register_admin_audit(
+        db,
+        request,
+        action="REQUEST_PDF_REQUEUED",
+        entity_type="REQUEST",
+        entity_id=request_item.id,
+        summary=(
+            f"PDF programado nuevamente "
+            f"para solicitud #{request_item.id}"
+        ),
+        details=(
+            "PDF_FAILED -> PENDING_PDF\n"
+            f"lookup_route={request_item.lookup_route or ''}\n"
+            f"previous_error={previous_error}"
+        ),
+    )
+
+    db.commit()
+
+    return RedirectResponse(
+        url=(
+            f"/panel/requests/{request_id}"
+            "?action_status=success"
+            "&action_message="
+            "PDF%20programado%20para%20reprocesamiento"
+        ),
+        status_code=303,
+    )
+
+
+@router.post(
     "/requests/{request_id}/resend"
 )
 async def request_resend_result(
@@ -3019,7 +3236,7 @@ async def request_resend_result(
             url=(
                 f"/panel/requests/{request_id}"
                 "?action_status=error"
-                "&action_message=CSRF inválido"
+                "&action_message=CSRF%20inválido"
             ),
             status_code=303,
         )
@@ -3035,6 +3252,103 @@ async def request_resend_result(
             status_code=303,
         )
 
+    client = db.get(
+        Client,
+        request_item.client_id,
+    )
+
+    if client is None:
+        return RedirectResponse(
+            url=(
+                f"/panel/requests/{request_id}"
+                "?action_status=error"
+                "&action_message=Cliente%20no%20disponible"
+            ),
+            status_code=303,
+        )
+
+    delivery_format = str(
+        request_item.delivery_format
+        or "TEXT"
+    ).strip().upper()
+
+    if delivery_format == "PDF":
+        pdf_url = str(
+            request_item.pdf_url
+            or ""
+        ).strip()
+
+        filename = os.path.basename(
+            str(
+                request_item.pdf_filename
+                or "constancia.pdf"
+            ).strip()
+        ) or "constancia.pdf"
+
+        if not pdf_url:
+            return RedirectResponse(
+                url=(
+                    f"/panel/requests/{request_id}"
+                    "?action_status=error"
+                    "&action_message="
+                    "La%20solicitud%20no%20tiene%20PDF%20almacenado"
+                ),
+                status_code=303,
+            )
+
+        try:
+            await send_document_message(
+                destination_jid=
+                    client.whatsapp_jid,
+                media_url=pdf_url,
+                file_name=filename,
+                instance=
+                    settings.evolution_instance,
+            )
+
+        except (
+            EvolutionAPIError,
+            ValueError,
+        ):
+            return RedirectResponse(
+                url=(
+                    f"/panel/requests/{request_id}"
+                    "?action_status=error"
+                    "&action_message="
+                    "No%20fue%20posible%20reenviar%20el%20PDF"
+                ),
+                status_code=303,
+            )
+
+        register_admin_audit(
+            db,
+            request,
+            action="REQUEST_PDF_RESENT",
+            entity_type="REQUEST",
+            entity_id=request_item.id,
+            summary=(
+                f"PDF reenviado para "
+                f"solicitud #{request_item.id}"
+            ),
+            details=(
+                f"status={request_item.status}\n"
+                f"client_id={request_item.client_id}\n"
+                f"service_type={request_item.service_type or ''}\n"
+                f"filename={filename}"
+            ),
+        )
+
+        db.commit()
+
+        return RedirectResponse(
+            url=(
+                f"/panel/requests/{request_id}"
+                "?action_status=success"
+                "&action_message=PDF%20reenviado%20correctamente"
+            ),
+            status_code=303,
+        )
+
     if (
         not request_item.provider_result
         and not request_item.result_code
@@ -3044,15 +3358,10 @@ async def request_resend_result(
                 f"/panel/requests/{request_id}"
                 "?action_status=error"
                 "&action_message="
-                "La solicitud todavía no tiene resultado"
+                "La%20solicitud%20todavía%20no%20tiene%20resultado"
             ),
             status_code=303,
         )
-
-    client = db.get(
-        Client,
-        request_item.client_id,
-    )
 
     provider = None
 
@@ -3062,26 +3371,25 @@ async def request_resend_result(
             request_item.provider_id,
         )
 
-    if client is None or provider is None:
+    if provider is None:
         return RedirectResponse(
             url=(
                 f"/panel/requests/{request_id}"
                 "?action_status=error"
-                "&action_message="
-                "Cliente o proveedor no disponible"
+                "&action_message=Proveedor%20no%20disponible"
             ),
             status_code=303,
         )
 
     try:
-        text = build_delivery_retry_text(
+        text_result = build_delivery_retry_text(
             [request_item]
         )
 
         await send_text_message(
             destination_jid=
                 client.whatsapp_jid,
-            text=text,
+            text=text_result,
             instance=
                 provider.evolution_instance,
         )
@@ -3095,14 +3403,13 @@ async def request_resend_result(
                 f"/panel/requests/{request_id}"
                 "?action_status=error"
                 "&action_message="
-                "No fue posible reenviar el resultado"
+                "No%20fue%20posible%20reenviar%20el%20resultado"
             ),
             status_code=303,
         )
 
-    # Reenvío manual de una solicitud ya entregada:
-    # NO modifica precio, corte, status ni delivered_at.
-
+    # Reenvío manual: no modifica precio,
+    # corte, status ni delivered_at.
     register_admin_audit(
         db,
         request,
@@ -3129,10 +3436,12 @@ async def request_resend_result(
             f"/panel/requests/{request_id}"
             "?action_status=success"
             "&action_message="
-            "Resultado reenviado correctamente"
+            "Resultado%20reenviado%20correctamente"
         ),
         status_code=303,
     )
+
+
 
 
 @router.get(
@@ -3213,6 +3522,29 @@ def request_detail_page(
     status_label = panel_status(
         request_item.status
     )
+
+    service_type = str(
+        request_item.service_type
+        or "RFC_IDCIF"
+    ).strip().upper()
+
+    delivery_format = str(
+        request_item.delivery_format
+        or "TEXT"
+    ).strip().upper()
+
+    service_type_label = (
+        "RFC genérico"
+        if service_type == "RFC_GENERIC"
+        else "RFC IDCIF"
+    )
+
+    delivery_format_label = (
+        "Constancia PDF"
+        if delivery_format == "PDF"
+        else "Texto RFC + IDCIF"
+    )
+
     timeline = [
         {
             "label": "Solicitud recibida",
@@ -3222,53 +3554,102 @@ def request_detail_page(
             ),
             "time": request_item.received_at,
         },
-        {
-            "label": (
-                "RFC identificado"
-                if request_item.input_type == "RFC"
-                else "CURP procesada / RFC obtenido"
-            ),
-            "done": bool(
-                request_item.rfc
-            ),
-            "time": None,
-        },
-        {
-            "label": "Agregada a lote",
-            "done": batch_item is not None,
-            "time": (
-                batch.created_at
-                if batch is not None
-                else None
-            ),
-        },
-        {
-            "label": "Enviada al proveedor",
-            "done": (
-                request_item.sent_to_provider_at
-                is not None
-            ),
-            "time":
-                request_item.sent_to_provider_at,
-        },
-        {
-            "label": "Respuesta del proveedor",
-            "done": (
-                request_item.provider_replied_at
-                is not None
-            ),
-            "time":
-                request_item.provider_replied_at,
-        },
-        {
-            "label": "Entregada al cliente",
-            "done": (
-                request_item.delivered_at
-                is not None
-            ),
-            "time": request_item.delivered_at,
-        },
     ]
+
+    if service_type == "RFC_GENERIC":
+        timeline.extend(
+            [
+                {
+                    "label": (
+                        "Solicitud genérica "
+                        "preparada"
+                    ),
+                    "done": True,
+                    "time": request_item.received_at,
+                },
+                {
+                    "label": "Constancia PDF generada",
+                    "done": bool(
+                        request_item.pdf_url
+                    ),
+                    "time": request_item.pdf_started_at,
+                },
+                {
+                    "label": "PDF entregado al cliente",
+                    "done": (
+                        request_item.delivered_at
+                        is not None
+                    ),
+                    "time": request_item.delivered_at,
+                },
+            ]
+        )
+
+    else:
+        timeline.extend(
+            [
+                {
+                    "label": (
+                        "RFC identificado"
+                        if request_item.input_type == "RFC"
+                        else "CURP procesada / RFC obtenido"
+                    ),
+                    "done": bool(
+                        request_item.rfc
+                    ),
+                    "time": None,
+                },
+                {
+                    "label": "Agregada a lote",
+                    "done": batch_item is not None,
+                    "time": (
+                        batch.created_at
+                        if batch is not None
+                        else None
+                    ),
+                },
+                {
+                    "label": "Enviada al proveedor",
+                    "done": (
+                        request_item.sent_to_provider_at
+                        is not None
+                    ),
+                    "time":
+                        request_item.sent_to_provider_at,
+                },
+                {
+                    "label": "Respuesta del proveedor",
+                    "done": (
+                        request_item.provider_replied_at
+                        is not None
+                    ),
+                    "time":
+                        request_item.provider_replied_at,
+                },
+            ]
+        )
+
+        if delivery_format == "PDF":
+            timeline.append(
+                {
+                    "label": "Constancia PDF generada",
+                    "done": bool(
+                        request_item.pdf_url
+                    ),
+                    "time": request_item.pdf_started_at,
+                }
+            )
+
+        timeline.append(
+            {
+                "label": "Entregada al cliente",
+                "done": (
+                    request_item.delivered_at
+                    is not None
+                ),
+                "time": request_item.delivered_at,
+            }
+        )
 
     return templates.TemplateResponse(
         request=request,
@@ -3284,12 +3665,18 @@ def request_detail_page(
             "batch": batch,
             "batch_item": batch_item,
             "status_label": status_label,
+            "service_type_label":
+                service_type_label,
+            "delivery_format_label":
+                delivery_format_label,
             "timeline": timeline,
             "csrf_token": csrf_token,
             "action_status": action_status,
             "action_message": action_message,
         },
     )
+
+
 
 
 @router.get(
@@ -4747,5 +5134,3 @@ def update_provider(
             "Proveedor actualizado correctamente."
         )
     )
-
-

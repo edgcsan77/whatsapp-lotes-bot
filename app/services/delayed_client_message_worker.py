@@ -120,6 +120,45 @@ def build_invalid_identifier_notice(
     return "\n".join(lines)
 
 
+def build_generic_not_enabled_notice(
+    identifiers: list[str],
+) -> str:
+    normalized = unique_preserving_order(
+        identifiers
+    )
+
+    if not normalized:
+        return ""
+
+    lines = [
+        "⚠️ *Servicio no habilitado*",
+        "",
+        (
+            "La generación de constancia "
+            "genérica no está habilitada "
+            "para este cliente."
+        ),
+        "",
+    ]
+
+    for identifier in normalized:
+        lines.append(
+            f"• {identifier}"
+        )
+
+    lines.extend(
+        [
+            "",
+            (
+                "Estas solicitudes no fueron "
+                "procesadas."
+            ),
+        ]
+    )
+
+    return "\n".join(lines)
+
+
 async def send_group_message(
     *,
     destination_jid: str,
@@ -171,6 +210,7 @@ async def process_pending_group(
     created_identifiers: list[str] = []
     invalid_curps: list[str] = []
     invalid_rfcs: list[str] = []
+    generic_not_enabled: list[str] = []
     recent_in_progress: list[str] = []
     recent_processed: list[str] = []
 
@@ -252,6 +292,14 @@ async def process_pending_group(
                 )
             )
 
+            generic_not_enabled.extend(
+                getattr(
+                    result,
+                    "generic_not_enabled_identifiers",
+                    [],
+                )
+            )
+
             recent_in_progress.extend(
                 result
                 .recent_in_progress_identifiers
@@ -290,6 +338,12 @@ async def process_pending_group(
         invalid_rfcs = (
             unique_preserving_order(
                 invalid_rfcs
+            )
+        )
+
+        generic_not_enabled = (
+            unique_preserving_order(
+                generic_not_enabled
             )
         )
 
@@ -404,6 +458,51 @@ async def process_pending_group(
                     due_at,
                 )
 
+        if generic_not_enabled:
+            generic_notice_text = (
+                build_generic_not_enabled_notice(
+                    generic_not_enabled
+                )
+            )
+
+            generic_notice_sent = (
+                await send_group_message(
+                    destination_jid=
+                        destination_jid,
+                    instance=instance,
+                    text=generic_notice_text,
+                    log_label=(
+                        "aviso de servicio "
+                        "genérico no habilitado"
+                    ),
+                )
+            )
+
+            if not generic_notice_sent:
+                retry_id = uuid.uuid4().hex
+
+                due_at = enqueue_ack_retry(
+                    PendingAckRetry(
+                        retry_id=retry_id,
+                        instance=instance,
+                        source_jid=
+                            destination_jid,
+                        text=
+                            generic_notice_text,
+                        attempt=0,
+                    )
+                )
+
+                logger.warning(
+                    "Aviso genérico no habilitado "
+                    "puesto en cola de reintento "
+                    "retry_id=%s source_jid=%s "
+                    "due_at=%s",
+                    retry_id,
+                    destination_jid,
+                    due_at,
+                )
+
         duplicate_lines: list[str] = []
 
         if recent_in_progress:
@@ -486,6 +585,7 @@ async def process_pending_group(
             "created=%s "
             "invalid_curp=%s "
             "invalid_rfc=%s "
+            "generic_not_enabled=%s "
             "in_progress=%s "
             "processed_duplicates=%s",
             destination_jid,
@@ -493,6 +593,7 @@ async def process_pending_group(
             len(created_identifiers),
             len(invalid_curps),
             len(invalid_rfcs),
+            len(generic_not_enabled),
             len(recent_in_progress),
             len(recent_processed),
         )
