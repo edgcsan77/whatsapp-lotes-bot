@@ -98,8 +98,52 @@ def curp_lock_key(
     )
 
 
-def global_curp_lock_key() -> str:
-    return "whatsapp-lotes:curp-lock:global"
+def normalize_worker_partition(
+    *,
+    worker_slot: int = 0,
+    worker_count: int = 1,
+) -> tuple[int, int]:
+    count = max(
+        1,
+        min(int(worker_count), 4),
+    )
+
+    slot = int(worker_slot)
+
+    if not 0 <= slot < count:
+        raise ValueError(
+            "CURP_WORKER_SLOT_INVALID:"
+            f"{slot}/{count}"
+        )
+
+    return slot, count
+
+
+def global_curp_lock_key(
+    *,
+    worker_slot: int = 0,
+    worker_count: int = 1,
+) -> str:
+    slot, count = (
+        normalize_worker_partition(
+            worker_slot=worker_slot,
+            worker_count=worker_count,
+        )
+    )
+
+    base = (
+        "whatsapp-lotes:"
+        "curp-lock:global"
+    )
+
+    if count == 1:
+        return base
+
+    return (
+        f"{base}:"
+        f"{count}:"
+        f"{slot}"
+    )
 
 
 def get_curp_attempts(
@@ -257,28 +301,49 @@ def get_pending_curp_requests(
     db: Session,
     *,
     limit: int = 3,
+    worker_slot: int = 0,
+    worker_count: int = 1,
 ) -> list[Request]:
-    return list(
-        db.scalars(
-            select(Request)
-            .where(
-                Request.status.in_(
-                    [
-                        "PENDING_CURP_LOOKUP",
-                        "CURP_LOOKUP_RETRY",
-                    ]
-                ),
-                Request.original_curp.is_not(
-                    None
-                ),
-                Request.rfc.is_(None),
-            )
-            .order_by(
-                Request.received_at.asc(),
-                Request.id.asc(),
-            )
-            .limit(limit)
+    slot, count = (
+        normalize_worker_partition(
+            worker_slot=worker_slot,
+            worker_count=worker_count,
         )
+    )
+
+    query = select(Request).where(
+        Request.status.in_(
+            [
+                "PENDING_CURP_LOOKUP",
+                "CURP_LOOKUP_RETRY",
+            ]
+        ),
+        Request.original_curp.is_not(
+            None
+        ),
+        Request.rfc.is_(None),
+    )
+
+    # Carriles disjuntos:
+    # con 2 workers, uno toma IDs pares
+    # y el otro IDs impares.
+    if count > 1:
+        query = query.where(
+            (Request.id % count)
+            == slot
+        )
+
+    query = (
+        query
+        .order_by(
+            Request.received_at.asc(),
+            Request.id.asc(),
+        )
+        .limit(limit)
+    )
+
+    return list(
+        db.scalars(query)
     )
 
 
@@ -453,12 +518,23 @@ async def process_pending_curps(
     db: Session,
     *,
     limit: int = 3,
+    worker_slot: int = 0,
+    worker_count: int = 1,
 ) -> CurpProcessingRunResult:
     result = CurpProcessingRunResult()
+
+    slot, count = (
+        normalize_worker_partition(
+            worker_slot=worker_slot,
+            worker_count=worker_count,
+        )
+    )
 
     requests = get_pending_curp_requests(
         db,
         limit=limit,
+        worker_slot=slot,
+        worker_count=count,
     )
 
     result.checked_requests = len(
@@ -469,8 +545,11 @@ async def process_pending_curps(
         return result
 
     global_lock = redis_client.lock(
-        global_curp_lock_key(),
-        timeout=300,
+        global_curp_lock_key(
+            worker_slot=slot,
+            worker_count=count,
+        ),
+        timeout=600,
         blocking_timeout=0,
     )
 

@@ -13,6 +13,10 @@ from app.services.curp_validator import (
     extract_curp_like_candidates,
     validate_curp_format,
 )
+from app.services.rfc_validator import (
+    extract_rfc_like_candidates,
+    validate_rfc_format,
+)
 
 
 class RequestRegistrationError(Exception):
@@ -53,6 +57,12 @@ class RegistrationResult:
     ignored_curps: list[str] = field(default_factory=list)
     invalid_curps: list[str] = field(default_factory=list)
     invalid_curp_reasons: dict[str, str] = field(
+        default_factory=dict
+    )
+    invalid_rfcs: list[str] = field(
+        default_factory=list
+    )
+    invalid_rfc_reasons: dict[str, str] = field(
         default_factory=dict
     )
     no_identifiers_found: bool = False
@@ -169,6 +179,36 @@ def register_client_message(
             candidate
         ] = reason
 
+    rfc_candidates = (
+        extract_rfc_like_candidates(
+            message.text
+        )
+    )
+
+    invalid_rfcs: list[str] = []
+    invalid_rfc_reasons: dict[
+        str,
+        str,
+    ] = {}
+
+    for candidate in rfc_candidates:
+        valid, reason = (
+            validate_rfc_format(
+                candidate
+            )
+        )
+
+        if valid:
+            continue
+
+        invalid_rfcs.append(
+            candidate
+        )
+
+        invalid_rfc_reasons[
+            candidate
+        ] = reason
+
     result = RegistrationResult(
         client_id=client.id,
         client_name=client.name,
@@ -176,9 +216,13 @@ def register_client_message(
         invalid_curps=invalid_curps,
         invalid_curp_reasons=
             invalid_curp_reasons,
+        invalid_rfcs=invalid_rfcs,
+        invalid_rfc_reasons=
+            invalid_rfc_reasons,
         no_identifiers_found=(
             not parsed_items
             and not invalid_curps
+            and not invalid_rfcs
         ),
     )
 
@@ -189,6 +233,28 @@ def register_client_message(
 
     for parsed in parsed_items:
         identifier_key = parsed.identifier.strip().upper()
+
+        if parsed.identifier_type == "RFC":
+            valid, reason = (
+                validate_rfc_format(
+                    identifier_key
+                )
+            )
+
+            if not valid:
+                if (
+                    identifier_key
+                    not in result.invalid_rfcs
+                ):
+                    result.invalid_rfcs.append(
+                        identifier_key
+                    )
+
+                result.invalid_rfc_reasons[
+                    identifier_key
+                ] = reason
+
+                continue
 
         if parsed.identifier_type == "CURP":
             valid, reason = (

@@ -1,0 +1,28 @@
+[Unit]
+Description=Convertir CURP pendientes a RFC en paralelo
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+Requires=postgresql.service redis-server.service
+
+[Service]
+Type=oneshot
+User=whatsapp-lotes
+Group=whatsapp-lotes
+WorkingDirectory=/opt/whatsapp-lotes-bot
+EnvironmentFile=/opt/whatsapp-lotes-bot/.env
+Environment=HOME=/home/whatsapp-lotes
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONPATH=/opt/whatsapp-lotes-bot
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/opt/whatsapp-lotes-bot/venv/bin/python /opt/whatsapp-lotes-bot/scripts/process_pending_curps_parallel.py --workers 2 --limit-per-worker 8
+
+TimeoutStartSec=900
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+ReadWritePaths=/home/whatsapp-lotes
+ReadWritePaths=/opt/whatsapp-lotes-bot/data

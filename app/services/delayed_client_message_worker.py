@@ -57,6 +57,69 @@ def unique_preserving_order(
     return output
 
 
+def build_invalid_identifier_notice(
+    *,
+    invalid_curps: list[str],
+    invalid_rfcs: list[str],
+) -> str:
+    if not invalid_curps and not invalid_rfcs:
+        return ""
+
+    lines = [
+        "⚠️ *Solicitud no procesada*",
+        "",
+    ]
+
+    if invalid_curps:
+        lines.append(
+            "*CURP no válida*"
+        )
+
+        for invalid_curp in invalid_curps:
+            lines.append(
+                f"• {invalid_curp}"
+            )
+
+        lines.extend(
+            [
+                (
+                    "Revisa que tenga 18 "
+                    "caracteres y esté escrita "
+                    "correctamente."
+                ),
+                "",
+            ]
+        )
+
+    if invalid_rfcs:
+        lines.append(
+            "*RFC no válido*"
+        )
+
+        for invalid_rfc in invalid_rfcs:
+            lines.append(
+                f"• {invalid_rfc}"
+            )
+
+        lines.extend(
+            [
+                (
+                    "Revisa que tenga 12 o 13 "
+                    "caracteres y una fecha "
+                    "válida."
+                ),
+                "",
+            ]
+        )
+
+    lines.append(
+        "Corrige el dato y envíalo "
+        "nuevamente."
+    )
+
+    return "\n".join(lines)
+
+
 async def send_group_message(
     *,
     destination_jid: str,
@@ -107,6 +170,7 @@ async def process_pending_group(
 
     created_identifiers: list[str] = []
     invalid_curps: list[str] = []
+    invalid_rfcs: list[str] = []
     recent_in_progress: list[str] = []
     recent_processed: list[str] = []
 
@@ -180,6 +244,14 @@ async def process_pending_group(
                 result.invalid_curps
             )
 
+            invalid_rfcs.extend(
+                getattr(
+                    result,
+                    "invalid_rfcs",
+                    [],
+                )
+            )
+
             recent_in_progress.extend(
                 result
                 .recent_in_progress_identifiers
@@ -212,6 +284,12 @@ async def process_pending_group(
         invalid_curps = (
             unique_preserving_order(
                 invalid_curps
+            )
+        )
+
+        invalid_rfcs = (
+            unique_preserving_order(
+                invalid_rfcs
             )
         )
 
@@ -272,36 +350,59 @@ async def process_pending_group(
                     due_at,
                 )
 
-        if invalid_curps:
-            lines = [
-                "⚠️ *CURP con formato incorrecto*",
-                "",
-            ]
+        if invalid_curps or invalid_rfcs:
+            invalid_notice_text = (
+                build_invalid_identifier_notice(
+                    invalid_curps=
+                        invalid_curps,
+                    invalid_rfcs=
+                        invalid_rfcs,
+                )
+            )
 
-            for invalid_curp in invalid_curps:
-                lines.append(
-                    f"• {invalid_curp}"
+            invalid_notice_sent = (
+                await send_group_message(
+                    destination_jid=
+                        destination_jid,
+                    instance=instance,
+                    text=invalid_notice_text,
+                    log_label=(
+                        "aviso de identificador "
+                        "inválido agrupado"
+                    ),
+                )
+            )
+
+            # Igual que el ACK normal:
+            # si Evolution falla, conservamos
+            # el aviso en la cola Redis.
+            if not invalid_notice_sent:
+                retry_id = (
+                    uuid.uuid4().hex
                 )
 
-            lines.extend(
-                [
-                    "",
-                    (
-                        "Verifica que la CURP tenga "
-                        "18 caracteres y esté escrita "
-                        "correctamente."
-                    ),
-                ]
-            )
+                due_at = enqueue_ack_retry(
+                    PendingAckRetry(
+                        retry_id=retry_id,
+                        instance=instance,
+                        source_jid=
+                            destination_jid,
+                        text=
+                            invalid_notice_text,
+                        attempt=0,
+                    )
+                )
 
-            await send_group_message(
-                destination_jid=
+                logger.warning(
+                    "Aviso inválido puesto "
+                    "en cola de reintento "
+                    "retry_id=%s "
+                    "source_jid=%s "
+                    "due_at=%s",
+                    retry_id,
                     destination_jid,
-                instance=instance,
-                text="\n".join(lines),
-                log_label=
-                    "aviso CURP inválida agrupado",
-            )
+                    due_at,
+                )
 
         duplicate_lines: list[str] = []
 
@@ -383,13 +484,15 @@ async def process_pending_group(
             "source_jid=%s "
             "messages=%s "
             "created=%s "
-            "invalid=%s "
+            "invalid_curp=%s "
+            "invalid_rfc=%s "
             "in_progress=%s "
             "processed_duplicates=%s",
             destination_jid,
             len(successful_keys),
             len(created_identifiers),
             len(invalid_curps),
+            len(invalid_rfcs),
             len(recent_in_progress),
             len(recent_processed),
         )
