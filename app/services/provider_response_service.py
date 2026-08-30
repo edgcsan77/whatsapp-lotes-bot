@@ -765,6 +765,7 @@ async def _validate_matched_idcif_before_delivery(
     *,
     processing_result: ProviderProcessingResult,
     delivery_groups: list[ClientDeliveryGroup],
+    provider_jid: str,
     evolution_instance: str,
 ) -> list[ClientDeliveryGroup]:
     targets: list[Request] = []
@@ -809,7 +810,12 @@ async def _validate_matched_idcif_before_delivery(
     }
 
     excluded_ids: set[int] = set()
-    notices: dict[int, list[str]] = defaultdict(list)
+
+    provider_notices: list[str] = []
+    provider_notice_keys: set[
+        tuple[str, str, str]
+    ] = set()
+
     temporary_notices: dict[int, list[str]] = defaultdict(list)
     client_jids: dict[int, str] = {}
 
@@ -834,27 +840,65 @@ async def _validate_matched_idcif_before_delivery(
             and validation.terminal
             and is_terminal_code(validation.code)
         ):
-            code = validation.code
-            request_item.status = "IDCIF_VALIDATION_FAILED"
-            request_item.result_code = code
-            request_item.sale_price = 0
+            code = str(
+                validation.code
+                or ""
+            ).strip().upper()
 
-            if str(request_item.delivery_format or "").strip().upper() == "PDF":
-                request_item.pdf_status = "FAILED"
-                request_item.pdf_next_attempt_at = None
+            # El proveedor dio una respuesta RFC+IDCIF,
+            # pero SAT la rechazó.
+            #
+            # La petición NO termina: vuelve a quedar
+            # esperando corrección del mismo proveedor.
+            request_item.status = "SENT_TO_PROVIDER"
+            request_item.result_code = code
+
+            # Reinicia la ventana de espera desde el momento
+            # en que avisamos al proveedor que debe corregir.
+            request_item.sent_to_provider_at = datetime.now(UTC)
+            request_item.provider_replied_at = None
+
+            # Cancela cualquier PDF que hubiera quedado
+            # programado antes de la validación SAT.
+            request_item.pdf_status = None
+            request_item.pdf_next_attempt_at = None
+            request_item.pdf_started_at = None
+            request_item.pdf_error = None
+            request_item.pdf_url = None
+            request_item.pdf_filename = None
+            request_item.pdf_delivered_message_id = None
+            request_item.pdf_attempts = 0
+            request_item.delivered_at = None
+
+            # NO cambiar sale_price.
+            # Todavía no es una petición terminada.
 
             excluded_ids.add(request_item.id)
 
             if request_item.id in processing_result.queued_pdf_request_ids:
-                processing_result.queued_pdf_request_ids.remove(request_item.id)
-
-            notices[client.id].append(
-                build_idcif_failure_message(
-                    rfc=pair[0],
-                    idcif=pair[1],
-                    code=code,
+                processing_result.queued_pdf_request_ids.remove(
+                    request_item.id
                 )
+
+            notice_key = (
+                pair[0],
+                pair[1],
+                code,
             )
+
+            if notice_key not in provider_notice_keys:
+                provider_notice_keys.add(
+                    notice_key
+                )
+
+                provider_notices.append(
+                    build_idcif_failure_message(
+                        rfc=pair[0],
+                        idcif=pair[1],
+                        code=code,
+                    )
+                )
+
             continue
 
         # Error temporal: PDF conserva PENDING_PDF para que su worker
@@ -873,17 +917,20 @@ async def _validate_matched_idcif_before_delivery(
 
     db.commit()
 
-    for client_id, messages in notices.items():
+    if provider_notices:
         try:
             await send_text_message(
-                destination_jid=client_jids[client_id],
-                text="\n\n".join(messages),
+                destination_jid=provider_jid,
+                text="\n\n".join(
+                    provider_notices
+                ),
                 instance=evolution_instance,
             )
         except (EvolutionAPIError, ValueError):
             logger.exception(
-                "No se pudo avisar rechazo IDCIF client_id=%s",
-                client_id,
+                "No se pudo avisar rechazo "
+                "RFC/IDCIF al proveedor jid=%s",
+                provider_jid,
             )
 
     for client_id, messages in temporary_notices.items():
@@ -924,6 +971,7 @@ async def process_provider_message(
         db,
         processing_result=processing_result,
         delivery_groups=delivery_groups,
+        provider_jid=provider.whatsapp_jid,
         evolution_instance=provider.evolution_instance,
     )
 
