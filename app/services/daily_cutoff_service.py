@@ -46,6 +46,7 @@ class CutoffTotals:
     curp_count: int
     total_amount: Decimal
     generic_count: int = 0
+    direct_count: int = 0
 
 
 def parse_cutoff_time(value: str) -> time:
@@ -287,6 +288,7 @@ def calculate_cutoff_totals(
     delivered_count = 0
     idcif_count = 0
     generic_count = 0
+    direct_count = 0
     failed_count = 0
     pending_count = 0
     rfc_count = 0
@@ -312,6 +314,9 @@ def calculate_cutoff_totals(
 
             if service_type == "RFC_GENERIC":
                 generic_count += 1
+
+            elif service_type == "CONSTANCIA_DIRECTA":
+                direct_count += 1
 
             elif (
                 str(request.result_code or "")
@@ -357,6 +362,7 @@ def calculate_cutoff_totals(
             Decimal("0.01")
         ),
         generic_count=generic_count,
+        direct_count=direct_count,
     )
 
 
@@ -445,6 +451,9 @@ def create_daily_cutoff(
         generic_count=(
             totals.generic_count
         ),
+        direct_count=(
+            totals.direct_count
+        ),
         delivered_count=(
             totals.delivered_count
         ),
@@ -528,7 +537,9 @@ def render_daily_cutoff_message(
         f"📄 *Total de IDCIF: "
         f"{totals.idcif_count}*\n"
         f"🧾 *Total de RFC genéricos: "
-        f"{totals.generic_count}*\n\n\n"
+        f"{totals.generic_count}*\n"
+        f"📄 *Total de constancias directas: "
+        f"{totals.direct_count}*\n\n\n"
         "Si algún rastreo se envió doble, "
         "favor de aclarar para que podamos "
         "ajustar el corte."

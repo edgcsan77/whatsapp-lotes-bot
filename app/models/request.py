@@ -92,6 +92,9 @@ class Request(Base):
     #
     # RFC_GENERIC:
     # constancia solicitada mediante -G.
+    #
+    # CONSTANCIA_DIRECTA:
+    # cliente proporciona RFC + IDCIF; no localiza.
     service_type: Mapped[str] = mapped_column(
         String(20),
         nullable=False,

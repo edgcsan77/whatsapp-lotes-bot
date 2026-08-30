@@ -109,6 +109,18 @@
                                     value="{{ client.generic_price_per_request }}"
                                     required
                                 >
+
+                                <label class="muted">
+                                    Constancia directa
+                                </label>
+                                <input
+                                    name="direct_price_per_request"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value="{{ client.direct_price_per_request }}"
+                                    required
+                                >
                             </td>
 
                             <td>
@@ -134,6 +146,17 @@
                                         }}
                                     </strong>
                                 </div>
+                                <div>
+                                    Directa:
+                                    <strong>
+                                        {{
+                                            client_direct_counts.get(
+                                                client.id,
+                                                0
+                                            )
+                                        }}
+                                    </strong>
+                                </div>
                             </td>
 
                             <td>
@@ -146,6 +169,18 @@
                                     >
                                     <label for="generic_pdf_{{ client.id }}">
                                         Genérico -G
+                                    </label>
+                                </div>
+
+                                <div class="checkbox-row">
+                                    <input
+                                        id="direct_pdf_{{ client.id }}"
+                                        name="direct_pdf_enabled"
+                                        type="checkbox"
+                                        {% if client.direct_pdf_enabled %}checked{% endif %}
+                                    >
+                                    <label for="direct_pdf_{{ client.id }}">
+                                        Constancia directa
                                     </label>
                                 </div>
 

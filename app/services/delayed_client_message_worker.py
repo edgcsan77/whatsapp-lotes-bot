@@ -211,6 +211,7 @@ async def process_pending_group(
     invalid_curps: list[str] = []
     invalid_rfcs: list[str] = []
     generic_not_enabled: list[str] = []
+    direct_not_enabled: list[str] = []
     recent_in_progress: list[str] = []
     recent_processed: list[str] = []
 
@@ -300,6 +301,14 @@ async def process_pending_group(
                 )
             )
 
+            direct_not_enabled.extend(
+                getattr(
+                    result,
+                    "direct_not_enabled_identifiers",
+                    [],
+                )
+            )
+
             recent_in_progress.extend(
                 result
                 .recent_in_progress_identifiers
@@ -344,6 +353,12 @@ async def process_pending_group(
         generic_not_enabled = (
             unique_preserving_order(
                 generic_not_enabled
+            )
+        )
+
+        direct_not_enabled = (
+            unique_preserving_order(
+                direct_not_enabled
             )
         )
 
@@ -503,6 +518,68 @@ async def process_pending_group(
                     due_at,
                 )
 
+        if direct_not_enabled:
+            direct_lines = [
+                "⚠️ *Servicio no habilitado*",
+                "",
+                (
+                    "La generación de constancia directa "
+                    "no está habilitada para este cliente."
+                ),
+                "",
+            ]
+
+            for direct_identifier in direct_not_enabled:
+                direct_lines.append(
+                    f"• {direct_identifier}"
+                )
+
+            direct_lines.extend(
+                [
+                    "",
+                    "Esta solicitud no fue procesada.",
+                ]
+            )
+
+            direct_notice_text = "\n".join(
+                direct_lines
+            )
+
+            direct_notice_sent = (
+                await send_group_message(
+                    destination_jid=
+                        destination_jid,
+                    instance=instance,
+                    text=direct_notice_text,
+                    log_label=(
+                        "aviso constancia directa "
+                        "no habilitada"
+                    ),
+                )
+            )
+
+            if not direct_notice_sent:
+                retry_id = uuid.uuid4().hex
+                due_at = enqueue_ack_retry(
+                    PendingAckRetry(
+                        retry_id=retry_id,
+                        instance=instance,
+                        source_jid=
+                            destination_jid,
+                        text=direct_notice_text,
+                        attempt=0,
+                    )
+                )
+                logger.warning(
+                    "Aviso directa no habilitada "
+                    "puesto en cola de reintento "
+                    "retry_id=%s source_jid=%s "
+                    "due_at=%s",
+                    retry_id,
+                    destination_jid,
+                    due_at,
+                )
+
         duplicate_lines: list[str] = []
 
         if recent_in_progress:
@@ -586,6 +663,7 @@ async def process_pending_group(
             "invalid_curp=%s "
             "invalid_rfc=%s "
             "generic_not_enabled=%s "
+            "direct_not_enabled=%s "
             "in_progress=%s "
             "processed_duplicates=%s",
             destination_jid,
@@ -594,6 +672,7 @@ async def process_pending_group(
             len(invalid_curps),
             len(invalid_rfcs),
             len(generic_not_enabled),
+            len(direct_not_enabled),
             len(recent_in_progress),
             len(recent_processed),
         )

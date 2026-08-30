@@ -70,13 +70,11 @@ def _build_request_acknowledgement_legacy(
 def build_request_acknowledgement(
     identifiers,
 ) -> str:
-    values = list(
-        identifiers
-    )
+    values = list(identifiers)
 
     regular_identifiers: list[str] = []
     generic_identifiers: list[str] = []
-
+    direct_identifiers: list[str] = []
     seen: set[str] = set()
 
     for raw_value in values:
@@ -92,52 +90,60 @@ def build_request_acknowledgement(
 
         seen.add(identifier)
 
-        if identifier.endswith("-G"):
-            generic_identifiers.append(
-                identifier
-            )
-
+        if identifier.startswith("DIRECT:"):
+            direct_identifiers.append(identifier)
+        elif identifier.endswith("-G"):
+            generic_identifiers.append(identifier)
         else:
-            regular_identifiers.append(
-                identifier
-            )
+            regular_identifiers.append(identifier)
 
-    if not generic_identifiers:
-        return (
-            _build_request_acknowledgement_legacy(
-                regular_identifiers
-            )
+    if (
+        not generic_identifiers
+        and not direct_identifiers
+    ):
+        return _build_request_acknowledgement_legacy(
+            regular_identifiers
         )
 
-    generic_count = len(
-        generic_identifiers
-    )
-
-    generic_label = (
-        "RFC genérico"
-        if generic_count == 1
-        else "RFC genéricos"
-    )
-
-    generic_summary = (
-        f"🧾 {generic_count} "
-        f"{generic_label}\n"
-        "Estado: pendiente de generación"
-    )
+    sections: list[str] = []
 
     if regular_identifiers:
-        regular_text = (
+        sections.append(
             _build_request_acknowledgement_legacy(
                 regular_identifiers
             )
         )
 
-        return (
-            f"{regular_text}\n\n"
-            f"{generic_summary}"
+    if generic_identifiers:
+        generic_count = len(generic_identifiers)
+        generic_label = (
+            "RFC genérico"
+            if generic_count == 1
+            else "RFC genéricos"
         )
+        sections.append(
+            f"🧾 {generic_count} {generic_label}\n"
+            "Estado: pendiente de generación"
+        )
+
+    if direct_identifiers:
+        direct_count = len(direct_identifiers)
+        direct_label = (
+            "constancia directa"
+            if direct_count == 1
+            else "constancias directas"
+        )
+        sections.append(
+            f"📄 {direct_count} {direct_label}\n"
+            "Estado: pendiente de generación"
+        )
+
+    body = "\n\n".join(sections)
+
+    if regular_identifiers:
+        return body
 
     return (
         "✅ Solicitud recibida\n\n"
-        f"{generic_summary}"
+        f"{body}"
     )

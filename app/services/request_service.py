@@ -13,6 +13,10 @@ from app.services.generic_request_parser import (
     extract_generic_requests,
     strip_generic_requests,
 )
+from app.services.direct_request_parser import (
+    extract_direct_requests,
+    strip_direct_requests,
+)
 from app.services.curp_validator import (
     extract_curp_like_candidates,
     validate_curp_format,
@@ -70,6 +74,11 @@ class RegistrationResult:
         default_factory=dict
     )
     generic_not_enabled_identifiers: list[
+        str
+    ] = field(
+        default_factory=list
+    )
+    direct_not_enabled_identifiers: list[
         str
     ] = field(
         default_factory=list
@@ -400,19 +409,42 @@ def register_client_message(
         message.text or ""
     )
 
+    # El par RFC + IDCIF expresa una intención
+    # inequívoca de constancia directa. Se extrae
+    # antes de -G y antes del parser de localización
+    # para que jamás termine en proveedor/lote.
+    direct_items = (
+        extract_direct_requests(
+            original_text
+        )
+    )
+
+    text_without_direct = (
+        strip_direct_requests(
+            original_text
+        )
+        if direct_items
+        else original_text
+    )
+
     generic_items = (
         extract_generic_requests(
-            original_text
+            text_without_direct
         )
     )
 
     if generic_items:
         localization_text = (
             strip_generic_requests(
-                original_text
+                text_without_direct
             )
         )
+    else:
+        localization_text = (
+            text_without_direct
+        )
 
+    if direct_items or generic_items:
         legacy_message = (
             IncomingWhatsAppMessage(
                 message_id=
@@ -427,12 +459,12 @@ def register_client_message(
                     localization_text,
             )
         )
-
     else:
         legacy_message = message
 
-    # Todo mensaje sin -G conserva exactamente
-    # la función anterior.
+    # El flujo normal continúa usando exactamente
+    # la registración histórica sobre el texto que
+    # no pertenece a servicios PDF especiales.
     result = (
         _register_client_message_legacy(
             db,
@@ -440,18 +472,16 @@ def register_client_message(
         )
     )
 
-    result.parsed_count += len(
-        generic_items
+    result.parsed_count += (
+        len(direct_items)
+        + len(generic_items)
     )
 
-    if generic_items:
+    if direct_items or generic_items:
         result.no_identifiers_found = False
 
-    # Snapshot del permiso de entrega IDCIF.
-    #
-    # Las solicitudes normales siguen usando
-    # el registro anterior; únicamente se fija
-    # PDF/TEXT al momento de crearlas.
+    # Snapshot del permiso de PDF automático IDCIF
+    # únicamente para solicitudes normales.
     if result.created_ids:
         created_requests = list(
             db.scalars(
@@ -463,15 +493,13 @@ def register_client_message(
             )
         )
 
-        for request_item in (
-            created_requests
-        ):
+        for request_item in created_requests:
             request_item.service_type = (
                 request_item.service_type
                 or "RFC_IDCIF"
             )
 
-            if generic_items:
+            if direct_items or generic_items:
                 request_item.original_text = (
                     original_text
                 )
@@ -484,34 +512,121 @@ def register_client_message(
                 request_item.delivery_format = (
                     "PDF"
                 )
-
                 request_item.lookup_route = (
                     "DIRECT_RFC_IDCIF"
                 )
 
         db.commit()
 
-    if not generic_items:
+    if not direct_items and not generic_items:
         return result
 
     sender_jid = (
-        str(
-            message.sender_jid
-        ).strip()
+        str(message.sender_jid).strip()
         if message.sender_jid
         else None
     )
 
     sender_name = (
-        str(
-            message.sender_name
-        ).strip()
+        str(message.sender_name).strip()
         if message.sender_name
         else None
     )
 
     now = datetime.now(UTC)
 
+    # ----------------------------------------------------------
+    # CONSTANCIA_DIRECTA
+    # ----------------------------------------------------------
+    for direct in direct_items:
+        rfc = direct.rfc.strip().upper()
+        idcif = direct.idcif.strip()
+        display_identifier = (
+            direct.display_identifier
+        )
+
+        valid, reason = (
+            validate_rfc_format(rfc)
+        )
+
+        if not valid:
+            if rfc not in result.invalid_rfcs:
+                result.invalid_rfcs.append(rfc)
+            result.invalid_rfc_reasons[rfc] = reason
+            continue
+
+        if not client.direct_pdf_enabled:
+            result\
+                .direct_not_enabled_identifiers\
+                .append(display_identifier)
+            continue
+
+        existing_request_id = db.scalar(
+            select(Request.id).where(
+                Request.whatsapp_message_id
+                == message_id,
+                Request.identifier_key
+                == rfc,
+                Request.service_type
+                == "CONSTANCIA_DIRECTA",
+            )
+        )
+
+        if existing_request_id is not None:
+            result.duplicate_identifiers.append(
+                display_identifier
+            )
+            continue
+
+        request_item = Request(
+            client_id=client.id,
+            provider_id=None,
+            whatsapp_message_id=message_id,
+            identifier_key=rfc,
+            source_jid=source_jid,
+            sender_jid=sender_jid,
+            sender_name=sender_name,
+            original_text=original_text,
+            input_type="RFC",
+            service_type="CONSTANCIA_DIRECTA",
+            delivery_format="PDF",
+            lookup_route="DIRECT_RFC_IDCIF",
+            rfc=rfc,
+            original_curp=None,
+            detected_name=None,
+            idcif=idcif,
+            status="PENDING_PDF",
+            pdf_status="PENDING",
+            pdf_next_attempt_at=now,
+            sale_price=(
+                client.direct_price_per_request
+                or Decimal("0.00")
+            ),
+        )
+
+        try:
+            with db.begin_nested():
+                db.add(request_item)
+                db.flush()
+        except IntegrityError:
+            result.duplicate_identifiers.append(
+                display_identifier
+            )
+            continue
+
+        result.created_ids.append(
+            request_item.id
+        )
+        # Marcador interno para que el ACK sepa
+        # que este identificador es directo. Nunca
+        # se guarda así en DB.
+        result.created_identifiers.append(
+            f"DIRECT:{rfc}:{idcif}"
+        )
+
+    # ----------------------------------------------------------
+    # RFC_GENERIC (-G), comportamiento existente.
+    # ----------------------------------------------------------
     for generic in generic_items:
         identifier = (
             generic.identifier
@@ -545,7 +660,6 @@ def register_client_message(
                 result.invalid_curp_reasons[
                     identifier
                 ] = reason
-
                 continue
 
         else:
@@ -567,16 +681,12 @@ def register_client_message(
                 result.invalid_rfc_reasons[
                     identifier
                 ] = reason
-
                 continue
 
         if not client.generic_pdf_enabled:
             result\
                 .generic_not_enabled_identifiers\
-                .append(
-                    display_identifier
-                )
-
+                .append(display_identifier)
             continue
 
         existing_request_id = db.scalar(
@@ -594,7 +704,6 @@ def register_client_message(
             result.duplicate_identifiers.append(
                 display_identifier
             )
-
             continue
 
         request_item = Request(
@@ -640,27 +749,20 @@ def register_client_message(
 
         try:
             with db.begin_nested():
-                db.add(
-                    request_item
-                )
-
+                db.add(request_item)
                 db.flush()
-
         except IntegrityError:
             result.duplicate_identifiers.append(
                 display_identifier
             )
-
             continue
 
         result.created_ids.append(
             request_item.id
         )
-
         result.created_identifiers.append(
             display_identifier
         )
 
     db.commit()
-
     return result

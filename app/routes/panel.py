@@ -667,6 +667,25 @@ def clients_page(
         ).all()
     }
 
+    client_direct_counts = {
+        int(client_id): int(total)
+        for client_id, total in db.execute(
+            select(
+                RequestModel.client_id,
+                func.count(RequestModel.id),
+            )
+            .where(
+                RequestModel.client_id.is_not(None),
+                RequestModel.status == "DELIVERED",
+                RequestModel.service_type
+                == "CONSTANCIA_DIRECTA",
+            )
+            .group_by(
+                RequestModel.client_id
+            )
+        ).all()
+    }
+
     return templates.TemplateResponse(
         request=request,
         name="panel/clients.html",
@@ -682,6 +701,8 @@ def clients_page(
                 client_idcif_counts,
             "client_generic_counts":
                 client_generic_counts,
+            "client_direct_counts":
+                client_direct_counts,
             # Alias temporal para cualquier
             # extensión histórica del template.
             "client_request_counts":
@@ -708,6 +729,9 @@ def create_client(
     generic_price_per_request: str = Form(
         "0.00"
     ),
+    direct_price_per_request: str = Form(
+        "0.00"
+    ),
     batch_interval_minutes: int = Form(...),
     batch_max_items: int = Form(...),
     daily_cutoff_time: str = Form(...),
@@ -718,6 +742,9 @@ def create_client(
         None
     ),
     generic_pdf_enabled: str | None = Form(
+        None
+    ),
+    direct_pdf_enabled: str | None = Form(
         None
     ),
     idcif_pdf_enabled: str | None = Form(
@@ -780,6 +807,21 @@ def create_client(
             error="Máximo por lote inválido."
         )
 
+    if not isinstance(
+        direct_price_per_request,
+        str,
+    ):
+        direct_price_per_request = "0.00"
+
+    if (
+        direct_pdf_enabled is not None
+        and not isinstance(
+            direct_pdf_enabled,
+            str,
+        )
+    ):
+        direct_pdf_enabled = None
+
     try:
         price = parse_price(
             price_per_request
@@ -787,6 +829,10 @@ def create_client(
 
         generic_price = parse_price(
             generic_price_per_request
+        )
+
+        direct_price = parse_price(
+            direct_price_per_request
         )
 
         validated_cutoff_time = (
@@ -813,9 +859,15 @@ def create_client(
         price_per_request=price,
         generic_price_per_request=
             generic_price,
+        direct_price_per_request=
+            direct_price,
         generic_pdf_enabled=
             checkbox_value(
                 generic_pdf_enabled
+            ),
+        direct_pdf_enabled=
+            checkbox_value(
+                direct_pdf_enabled
             ),
         idcif_pdf_enabled=
             checkbox_value(
@@ -950,6 +1002,9 @@ def update_client(
     generic_price_per_request: str = Form(
         "0.00"
     ),
+    direct_price_per_request: str = Form(
+        "0.00"
+    ),
     batch_interval_minutes: int = Form(...),
     batch_max_items: int = Form(...),
     daily_cutoff_time: str = Form(...),
@@ -959,6 +1014,9 @@ def update_client(
         None
     ),
     generic_pdf_enabled: str | None = Form(
+        None
+    ),
+    direct_pdf_enabled: str | None = Form(
         None
     ),
     idcif_pdf_enabled: str | None = Form(
@@ -992,6 +1050,28 @@ def update_client(
             error="Cliente no encontrado."
         )
 
+    if not isinstance(
+        direct_price_per_request,
+        str,
+    ):
+        direct_price_per_request = str(
+            client.direct_price_per_request
+            or Decimal("0.00")
+        )
+
+    if (
+        direct_pdf_enabled is not None
+        and not isinstance(
+            direct_pdf_enabled,
+            str,
+        )
+    ):
+        direct_pdf_enabled = (
+            "on"
+            if client.direct_pdf_enabled
+            else None
+        )
+
     client_before = {
         "name": client.name,
         "source_type": client.source_type,
@@ -1002,8 +1082,14 @@ def update_client(
             str(
                 client.generic_price_per_request
             ),
+        "direct_price_per_request":
+            str(
+                client.direct_price_per_request
+            ),
         "generic_pdf_enabled":
             client.generic_pdf_enabled,
+        "direct_pdf_enabled":
+            client.direct_pdf_enabled,
         "idcif_pdf_enabled":
             client.idcif_pdf_enabled,
         "batch_enabled": client.batch_enabled,
@@ -1026,6 +1112,10 @@ def update_client(
 
         generic_price = parse_price(
             generic_price_per_request
+        )
+
+        direct_price = parse_price(
+            direct_price_per_request
         )
 
         validated_cutoff_time = (
@@ -1062,9 +1152,17 @@ def update_client(
     client.generic_price_per_request = (
         generic_price
     )
+    client.direct_price_per_request = (
+        direct_price
+    )
     client.generic_pdf_enabled = (
         checkbox_value(
             generic_pdf_enabled
+        )
+    )
+    client.direct_pdf_enabled = (
+        checkbox_value(
+            direct_pdf_enabled
         )
     )
     client.idcif_pdf_enabled = (
@@ -1105,8 +1203,14 @@ def update_client(
             str(
                 client.generic_price_per_request
             ),
+        "direct_price_per_request":
+            str(
+                client.direct_price_per_request
+            ),
         "generic_pdf_enabled":
             client.generic_pdf_enabled,
+        "direct_pdf_enabled":
+            client.direct_pdf_enabled,
         "idcif_pdf_enabled":
             client.idcif_pdf_enabled,
         "batch_enabled": client.batch_enabled,
@@ -1808,6 +1912,13 @@ def cutoffs_page(
             func.coalesce(
                 func.sum(
                     filtered_cutoffs_subquery
+                    .c.direct_count
+                ),
+                0,
+            ),
+            func.coalesce(
+                func.sum(
+                    filtered_cutoffs_subquery
                     .c.total_requests
                 ),
                 0,
@@ -1855,20 +1966,23 @@ def cutoffs_page(
         "generic": int(
             summary_row[2] or 0
         ),
-        "requests": int(
+        "direct": int(
             summary_row[3] or 0
         ),
-        "delivered": int(
+        "requests": int(
             summary_row[4] or 0
         ),
-        "pending": int(
+        "delivered": int(
             summary_row[5] or 0
         ),
-        "failed": int(
+        "pending": int(
             summary_row[6] or 0
         ),
+        "failed": int(
+            summary_row[7] or 0
+        ),
         "amount": (
-            summary_row[7]
+            summary_row[8]
             or Decimal("0.00")
         ),
     }
@@ -2313,6 +2427,21 @@ def dashboard_page(
         )
     ]
 
+    direct_requests = [
+        item
+        for item in delivered_requests
+        if (
+            str(
+                item.service_type or ""
+            ).strip().upper()
+            == "CONSTANCIA_DIRECTA"
+            and str(
+                item.result_code or ""
+            ).strip().upper()
+            == "OK"
+        )
+    ]
+
     chart_days = []
 
     current_day = (
@@ -2548,6 +2677,7 @@ def dashboard_page(
         "requests": len(range_requests),
         "idcif": len(idcif_requests),
         "generic": len(generic_requests),
+        "direct": len(direct_requests),
         "delivered": len(
             delivered_requests
         ),
@@ -3825,6 +3955,7 @@ def operations_page(
     if normalized_service_type in {
         "RFC_IDCIF",
         "RFC_GENERIC",
+        "CONSTANCIA_DIRECTA",
     }:
         request_statement = (
             request_statement.where(
@@ -4101,9 +4232,25 @@ def operations_page(
         or 0
     )
 
+    direct_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(
+                filtered_request_subquery
+            )
+            .where(
+                filtered_request_subquery
+                .c.service_type
+                == "CONSTANCIA_DIRECTA"
+            )
+        )
+        or 0
+    )
+
     request_counts = {
         "total": total_requests,
         "generic": generic_count,
+        "direct": direct_count,
         "delivered": delivered_count,
         "pending": pending_count,
         "failed": failed_count,

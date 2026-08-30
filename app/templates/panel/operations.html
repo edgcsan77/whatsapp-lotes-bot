@@ -136,6 +136,13 @@
                         >
                             RFC genérico
                         </option>
+
+                        <option
+                            value="CONSTANCIA_DIRECTA"
+                            {% if active_filters.service_type == "CONSTANCIA_DIRECTA" %}selected{% endif %}
+                        >
+                            Constancia directa
+                        </option>
                     </select>
                 </div>
 
@@ -217,6 +224,15 @@
             </div>
             <div class="stat-value">
                 {{ request_counts.generic }}
+            </div>
+        </div>
+
+<div class="stat-card">
+            <div class="stat-label">
+                Constancias directas
+            </div>
+            <div class="stat-value">
+                {{ request_counts.direct }}
             </div>
         </div>
 
@@ -314,6 +330,11 @@
                                 or "RFC_IDCIF"
                             ) == "RFC_GENERIC" %}
                             RFC genérico
+                            {% elif (
+                                item.service_type
+                                or "RFC_IDCIF"
+                            ) == "CONSTANCIA_DIRECTA" %}
+                            Constancia directa
                             {% else %}
                             RFC IDCIF
                             {% endif %}

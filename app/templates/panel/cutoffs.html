@@ -173,6 +173,18 @@
             </div>
         </article>
 
+<article class="metric-card">
+            <div>
+                <div class="metric-label">
+                    Constancias directas
+                </div>
+
+                <div class="metric-value">
+                    {{ cutoff_summary.direct }}
+                </div>
+            </div>
+        </article>
+
         <article class="metric-card">
             <div>
                 <div class="metric-label">
@@ -271,6 +283,7 @@
                         <th>Solicitudes</th>
                         <th>IDCIF</th>
                         <th>Genéricos</th>
+                        <th>Directas</th>
                         <th>Entregadas</th>
                         <th>Pendientes</th>
                         <th>Fallidas</th>
@@ -327,6 +340,12 @@
                         <td>
                             <strong>
                                 {{ cutoff.generic_count }}
+                            </strong>
+                        </td>
+
+                        <td>
+                            <strong>
+                                {{ cutoff.direct_count }}
                             </strong>
                         </td>
 

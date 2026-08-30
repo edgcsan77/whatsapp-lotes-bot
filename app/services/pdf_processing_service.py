@@ -515,20 +515,22 @@ async def process_one_pdf_request(
             send_result.message_id
         )
 
-        if (
-            str(
-                request.service_type
-                or ""
-            )
-            .strip()
-            .upper()
-            == "RFC_GENERIC"
-        ):
+        service_type = str(
+            request.service_type or ""
+        ).strip().upper()
+
+        if service_type in {
+            "RFC_GENERIC",
+            "CONSTANCIA_DIRECTA",
+        }:
             request.result_code = "OK"
 
             if not request.provider_result:
                 request.provider_result = (
-                    "PDF_GENERIC"
+                    "PDF_DIRECT"
+                    if service_type
+                    == "CONSTANCIA_DIRECTA"
+                    else "PDF_GENERIC"
                 )
 
         db.commit()
