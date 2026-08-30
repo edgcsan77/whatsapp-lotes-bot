@@ -2260,6 +2260,9 @@ def dashboard_page(
 
     failed_statuses = {
         "CURP_LOOKUP_FAILED",
+        "BATCH_SEND_FAILED",
+        "DELIVERY_FAILED",
+        "PDF_FAILED",
     }
 
     failed_requests = [
@@ -2281,12 +2284,32 @@ def dashboard_page(
         for item in delivered_requests
         if (
             str(
+                item.service_type
+                or "RFC_IDCIF"
+            ).strip().upper()
+            == "RFC_IDCIF"
+            and str(
                 item.result_code or ""
             ).strip().upper()
             == "OK"
             and str(
                 item.idcif or ""
             ).strip()
+        )
+    ]
+
+    generic_requests = [
+        item
+        for item in delivered_requests
+        if (
+            str(
+                item.service_type or ""
+            ).strip().upper()
+            == "RFC_GENERIC"
+            and str(
+                item.result_code or ""
+            ).strip().upper()
+            == "OK"
         )
     ]
 
@@ -2524,6 +2547,7 @@ def dashboard_page(
     dashboard_stats = {
         "requests": len(range_requests),
         "idcif": len(idcif_requests),
+        "generic": len(generic_requests),
         "delivered": len(
             delivered_requests
         ),
@@ -3688,6 +3712,7 @@ def operations_page(
     client_id: str | None = None,
     status: str | None = None,
     input_type: str | None = None,
+    service_type: str | None = None,
     query: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -3762,6 +3787,10 @@ def operations_page(
         input_type or ""
     ).strip().upper()
 
+    normalized_service_type = str(
+        service_type or ""
+    ).strip().upper()
+
     normalized_query = str(
         query or ""
     ).strip().upper()
@@ -3790,6 +3819,17 @@ def operations_page(
             request_statement.where(
                 RequestModel.input_type
                 == normalized_input_type
+            )
+        )
+
+    if normalized_service_type in {
+        "RFC_IDCIF",
+        "RFC_GENERIC",
+    }:
+        request_statement = (
+            request_statement.where(
+                RequestModel.service_type
+                == normalized_service_type
             )
         )
 
@@ -3981,33 +4021,99 @@ def operations_page(
         )
     )
 
+    filtered_request_subquery = (
+        request_statement
+        .order_by(None)
+        .subquery()
+    )
+
+    operation_failed_statuses = (
+        "CURP_LOOKUP_FAILED",
+        "BATCH_SEND_FAILED",
+        "DELIVERY_FAILED",
+        "PDF_FAILED",
+    )
+
+    delivered_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(
+                filtered_request_subquery
+            )
+            .where(
+                filtered_request_subquery
+                .c.status
+                == "DELIVERED"
+            )
+        )
+        or 0
+    )
+
+    failed_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(
+                filtered_request_subquery
+            )
+            .where(
+                filtered_request_subquery
+                .c.status
+                .in_(
+                    operation_failed_statuses
+                )
+            )
+        )
+        or 0
+    )
+
+    pending_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(
+                filtered_request_subquery
+            )
+            .where(
+                filtered_request_subquery
+                .c.status
+                != "DELIVERED",
+                filtered_request_subquery
+                .c.status
+                .notin_(
+                    operation_failed_statuses
+                ),
+            )
+        )
+        or 0
+    )
+
+    generic_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(
+                filtered_request_subquery
+            )
+            .where(
+                filtered_request_subquery
+                .c.service_type
+                == "RFC_GENERIC"
+            )
+        )
+        or 0
+    )
+
     request_counts = {
         "total": total_requests,
-        "delivered": sum(
-            1
-            for item in recent_requests
-            if item.status == "DELIVERED"
-        ),
-        "pending": sum(
-            1
-            for item in recent_requests
-            if item.status not in {
-                "DELIVERED",
-                "CURP_LOOKUP_FAILED",
-            }
-        ),
-        "failed": sum(
-            1
-            for item in recent_requests
-            if item.status
-            == "CURP_LOOKUP_FAILED"
-        ),
+        "generic": generic_count,
+        "delivered": delivered_count,
+        "pending": pending_count,
+        "failed": failed_count,
     }
 
     active_filters = {
         "client_id": client_id,
         "status": normalized_status,
         "input_type": normalized_input_type,
+        "service_type": normalized_service_type,
         "query": normalized_query,
         "date_from": normalized_date_from,
         "date_to": normalized_date_to,
@@ -4030,6 +4136,12 @@ def operations_page(
         query_params.append(
             "input_type="
             + quote(normalized_input_type)
+        )
+
+    if normalized_service_type:
+        query_params.append(
+            "service_type="
+            + quote(normalized_service_type)
         )
 
     if normalized_query:

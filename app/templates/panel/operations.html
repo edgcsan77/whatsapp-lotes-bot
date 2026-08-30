@@ -111,6 +111,36 @@
                 </div>
 
                 <div>
+                    <label for="service_type">
+                        Servicio
+                    </label>
+
+                    <select
+                        id="service_type"
+                        name="service_type"
+                    >
+                        <option value="">
+                            Todos los servicios
+                        </option>
+
+                        <option
+                            value="RFC_IDCIF"
+                            {% if active_filters.service_type == "RFC_IDCIF" %}selected{% endif %}
+                        >
+                            RFC IDCIF
+                        </option>
+
+                        <option
+                            value="RFC_GENERIC"
+                            {% if active_filters.service_type == "RFC_GENERIC" %}selected{% endif %}
+                        >
+                            RFC genérico
+                        </option>
+                    </select>
+                </div>
+
+
+                <div>
                     <label for="filter_query">
                         RFC, CURP, IDCIF o nombre
                     </label>
@@ -181,6 +211,15 @@
             </div>
         </div>
 
+<div class="stat-card">
+            <div class="stat-label">
+                RFC genéricos
+            </div>
+            <div class="stat-value">
+                {{ request_counts.generic }}
+            </div>
+        </div>
+
         <div class="stat-card">
             <div class="stat-label">
                 Entregadas
@@ -233,6 +272,8 @@
                         <th>ID</th>
                         <th>Cliente</th>
                         <th>Entrada</th>
+                        <th>Servicio</th>
+                        <th>Entrega</th>
                         <th>RFC / CURP</th>
                         <th>Proveedor</th>
                         <th>Estado</th>
@@ -265,6 +306,30 @@
 
                         <td>
                             {{ item.input_type }}
+                        </td>
+
+                        <td>
+                            {% if (
+                                item.service_type
+                                or "RFC_IDCIF"
+                            ) == "RFC_GENERIC" %}
+                            <strong>
+                                RFC genérico
+                            </strong>
+                            {% else %}
+                            RFC IDCIF
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if (
+                                item.delivery_format
+                                or "TEXT"
+                            ) == "PDF" %}
+                            PDF
+                            {% else %}
+                            Texto
+                            {% endif %}
                         </td>
 
                         <td>
@@ -302,7 +367,8 @@
                             {% elif item.status in [
                                 "CURP_LOOKUP_FAILED",
                                 "BATCH_SEND_FAILED",
-                                "DELIVERY_FAILED"
+                                "DELIVERY_FAILED",
+                                "PDF_FAILED"
                             ] %}
                             <span class="status status-inactive">
                                 {{ item.status|panel_status }}
