@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -17,6 +18,15 @@ from app.models.request import Request
 from app.services.provider_parser import (
     ParsedProviderResult,
     parse_provider_message,
+)
+from app.services.pdf_backend_client import (
+    PdfBackendError,
+    validate_rfc_idcif,
+)
+from app.services.idcif_validation import (
+    build_idcif_failure_message,
+    build_temporary_failure_message,
+    is_terminal_code,
 )
 
 
@@ -674,6 +684,228 @@ async def deliver_provider_results(
     return processing_result
 
 
+
+def _rebuild_delivery_groups_excluding(
+    db: Session,
+    *,
+    delivery_groups: list[ClientDeliveryGroup],
+    excluded_ids: set[int],
+) -> list[ClientDeliveryGroup]:
+    if not excluded_ids:
+        return delivery_groups
+
+    output: list[ClientDeliveryGroup] = []
+
+    for group in delivery_groups:
+        remaining_ids = tuple(
+            request_id
+            for request_id in group.request_ids
+            if request_id not in excluded_ids
+        )
+
+        if not remaining_ids:
+            continue
+
+        if len(remaining_ids) == len(group.request_ids):
+            output.append(group)
+            continue
+
+        parsed_results: list[ParsedProviderResult] = []
+
+        for request_id in remaining_ids:
+            request_item = db.get(Request, request_id)
+            if request_item is None:
+                continue
+
+            candidates = parse_provider_message(request_item.provider_result or "")
+            selected = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if candidate.rfc == request_item.rfc
+                ),
+                None,
+            )
+
+            if selected is None:
+                selected = ParsedProviderResult(
+                    rfc=str(
+                        request_item.rfc
+                        or request_item.identifier_key
+                        or ""
+                    ).strip().upper(),
+                    raw_value=(str(request_item.idcif or "").strip() or None),
+                    idcif=(str(request_item.idcif or "").strip() or None),
+                    result_code=str(
+                        request_item.result_code or "RFC_ONLY"
+                    ).strip().upper(),
+                    raw_line=request_item.provider_result or "",
+                )
+
+            parsed_results.append(selected)
+
+        if not parsed_results:
+            continue
+
+        output.append(
+            ClientDeliveryGroup(
+                client_id=group.client_id,
+                client_name=group.client_name,
+                client_jid=group.client_jid,
+                request_ids=remaining_ids,
+                text=build_client_result_message(parsed_results),
+            )
+        )
+
+    return output
+
+
+async def _validate_matched_idcif_before_delivery(
+    db: Session,
+    *,
+    processing_result: ProviderProcessingResult,
+    delivery_groups: list[ClientDeliveryGroup],
+    evolution_instance: str,
+) -> list[ClientDeliveryGroup]:
+    targets: list[Request] = []
+
+    for request_id in processing_result.matched_request_ids:
+        request_item = db.get(Request, request_id)
+        if request_item is None:
+            continue
+
+        if (
+            str(request_item.result_code or "").strip().upper() == "OK"
+            and bool(str(request_item.idcif or "").strip())
+        ):
+            targets.append(request_item)
+
+    if not targets:
+        return delivery_groups
+
+    unique_pairs = {
+        (
+            str(item.rfc or "").strip().upper(),
+            str(item.idcif or "").strip(),
+        )
+        for item in targets
+    }
+
+    async def validate_pair(pair):
+        rfc, idcif = pair
+        try:
+            value = await validate_rfc_idcif(rfc=rfc, idcif=idcif)
+            return pair, value, None
+        except PdfBackendError as error:
+            return pair, None, error
+
+    validated = await asyncio.gather(
+        *[validate_pair(pair) for pair in unique_pairs]
+    )
+
+    by_pair = {
+        pair: (validation, error)
+        for pair, validation, error in validated
+    }
+
+    excluded_ids: set[int] = set()
+    notices: dict[int, list[str]] = defaultdict(list)
+    temporary_notices: dict[int, list[str]] = defaultdict(list)
+    client_jids: dict[int, str] = {}
+
+    for request_item in targets:
+        client = db.get(Client, request_item.client_id)
+        if client is None:
+            continue
+
+        client_jids[client.id] = client.whatsapp_jid
+        pair = (
+            str(request_item.rfc or "").strip().upper(),
+            str(request_item.idcif or "").strip(),
+        )
+
+        validation, error = by_pair[pair]
+
+        if validation is not None and validation.valid:
+            continue
+
+        if (
+            validation is not None
+            and validation.terminal
+            and is_terminal_code(validation.code)
+        ):
+            code = validation.code
+            request_item.status = "IDCIF_VALIDATION_FAILED"
+            request_item.result_code = code
+            request_item.sale_price = 0
+
+            if str(request_item.delivery_format or "").strip().upper() == "PDF":
+                request_item.pdf_status = "FAILED"
+                request_item.pdf_next_attempt_at = None
+
+            excluded_ids.add(request_item.id)
+
+            if request_item.id in processing_result.queued_pdf_request_ids:
+                processing_result.queued_pdf_request_ids.remove(request_item.id)
+
+            notices[client.id].append(
+                build_idcif_failure_message(
+                    rfc=pair[0],
+                    idcif=pair[1],
+                    code=code,
+                )
+            )
+            continue
+
+        # Error temporal: PDF conserva PENDING_PDF para que su worker
+        # haga reintentos. Texto nunca se entrega sin validar.
+        is_pdf = str(request_item.delivery_format or "").strip().upper() == "PDF"
+        if is_pdf:
+            continue
+
+        request_item.status = "IDCIF_VALIDATION_FAILED"
+        request_item.result_code = "SAT_TEMPORAL_ERROR"
+        request_item.sale_price = 0
+        excluded_ids.add(request_item.id)
+        temporary_notices[client.id].append(
+            build_temporary_failure_message(rfc=pair[0], idcif=pair[1])
+        )
+
+    db.commit()
+
+    for client_id, messages in notices.items():
+        try:
+            await send_text_message(
+                destination_jid=client_jids[client_id],
+                text="\n\n".join(messages),
+                instance=evolution_instance,
+            )
+        except (EvolutionAPIError, ValueError):
+            logger.exception(
+                "No se pudo avisar rechazo IDCIF client_id=%s",
+                client_id,
+            )
+
+    for client_id, messages in temporary_notices.items():
+        try:
+            await send_text_message(
+                destination_jid=client_jids[client_id],
+                text="\n\n".join(messages),
+                instance=evolution_instance,
+            )
+        except (EvolutionAPIError, ValueError):
+            logger.exception(
+                "No se pudo avisar error temporal IDCIF client_id=%s",
+                client_id,
+            )
+
+    return _rebuild_delivery_groups_excluding(
+        db,
+        delivery_groups=delivery_groups,
+        excluded_ids=excluded_ids,
+    )
+
+
 async def process_provider_message(
     db: Session,
     *,
@@ -681,13 +913,18 @@ async def process_provider_message(
     provider_message_id: str,
     text: str,
 ) -> ProviderProcessingResult:
-    processing_result, delivery_groups = (
-        register_provider_results(
-            db,
-            provider=provider,
-            provider_message_id=provider_message_id,
-            text=text,
-        )
+    processing_result, delivery_groups = register_provider_results(
+        db,
+        provider=provider,
+        provider_message_id=provider_message_id,
+        text=text,
+    )
+
+    delivery_groups = await _validate_matched_idcif_before_delivery(
+        db,
+        processing_result=processing_result,
+        delivery_groups=delivery_groups,
+        evolution_instance=provider.evolution_instance,
     )
 
     if not delivery_groups:

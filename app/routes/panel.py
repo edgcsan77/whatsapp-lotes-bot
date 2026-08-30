@@ -175,6 +175,8 @@ PANEL_STATUS_LABELS = {
         "Reintentando PDF",
     "PDF_FAILED":
         "Error de PDF",
+    "IDCIF_VALIDATION_FAILED":
+        "RFC / IDCIF no válido",
     "DELIVERY_FAILED":
         "Error de entrega",
     "DELIVERED":
@@ -2377,6 +2379,7 @@ def dashboard_page(
         "BATCH_SEND_FAILED",
         "DELIVERY_FAILED",
         "PDF_FAILED",
+        "IDCIF_VALIDATION_FAILED",
     }
 
     failed_requests = [
@@ -4163,6 +4166,7 @@ def operations_page(
         "BATCH_SEND_FAILED",
         "DELIVERY_FAILED",
         "PDF_FAILED",
+        "IDCIF_VALIDATION_FAILED",
     )
 
     delivered_count = int(

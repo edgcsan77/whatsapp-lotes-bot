@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 from sqlalchemy import and_, or_, select
@@ -17,6 +18,10 @@ from app.models.request import Request
 from app.services.pdf_backend_client import (
     PdfBackendError,
     generate_pdf_document,
+)
+from app.services.idcif_validation import (
+    build_idcif_failure_message,
+    terminal_code_from_error_text,
 )
 
 
@@ -175,6 +180,13 @@ def build_pdf_backend_payload(
             request.lookup_route,
         "skip_internal_stats":
             True,
+        "allow_suspended_without_regime":
+            (
+                str(request.lookup_route or "")
+                .strip()
+                .upper()
+                == "DIRECT_RFC_IDCIF"
+            ),
     }
 
 
@@ -298,6 +310,17 @@ def register_pdf_failure(
 
     request.pdf_started_at = None
 
+    terminal_code = terminal_code_from_error_text(str(error))
+
+    if terminal_code:
+        request.status = "IDCIF_VALIDATION_FAILED"
+        request.pdf_status = "FAILED"
+        request.pdf_next_attempt_at = None
+        request.result_code = terminal_code
+        request.sale_price = Decimal("0.00")
+        db.commit()
+        return request, True
+
     reached_maximum = (
         request.pdf_attempts
         >= MAX_PDF_ATTEMPTS
@@ -343,13 +366,26 @@ async def notify_pdf_failed(
         or ""
     ).strip().upper()
 
-    text = (
-        "⚠️ No fue posible generar "
-        "la constancia\n\n"
-        f"Dato: {identifier}\n\n"
-        "La solicitud agotó sus "
-        "reintentos automáticos."
+    terminal_code = terminal_code_from_error_text(
+        request.result_code
+        or request.pdf_error
+        or ""
     )
+
+    if terminal_code:
+        text = build_idcif_failure_message(
+            rfc=str(request.rfc or identifier or ""),
+            idcif=str(request.idcif or ""),
+            code=terminal_code,
+        )
+    else:
+        text = (
+            "⚠️ No fue posible generar "
+            "la constancia\n\n"
+            f"Dato: {identifier}\n\n"
+            "La solicitud agotó sus "
+            "reintentos automáticos."
+        )
 
     try:
         await send_text_message(
