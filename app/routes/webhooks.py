@@ -3,6 +3,7 @@ from typing import Any
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     Header,
     HTTPException,
@@ -11,7 +12,7 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.integrations.evolution_client import (
     EvolutionAPIError,
     send_text_message,
@@ -45,6 +46,18 @@ from app.services.request_service import (
     register_client_message,
 )
 
+from app.services.direct_request_parser import (
+    extract_direct_requests,
+    strip_direct_requests,
+)
+from app.services.generic_request_parser import (
+    extract_generic_requests,
+    strip_generic_requests,
+)
+from app.services.pdf_processing_service import (
+    process_immediate_special_pdfs,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +67,53 @@ router = APIRouter(
 )
 
 
+
+async def _run_immediate_special_pdfs(
+    request_ids: list[int],
+) -> None:
+    """
+    Background exclusivo para Directa / Genérico.
+    Usa una sesión propia porque la sesión del webhook
+    se cierra al terminar la respuesta HTTP.
+    """
+    if not request_ids:
+        return
+
+    try:
+        with SessionLocal() as background_db:
+            result = await process_immediate_special_pdfs(
+                background_db,
+                request_ids=request_ids,
+            )
+
+        logger.info(
+            "IMMEDIATE_SPECIAL_PDF "
+            "request_ids=%s checked=%s "
+            "generated=%s delivered=%s "
+            "retried=%s failed=%s errors=%s",
+            request_ids,
+            result.checked_requests,
+            result.generated_request_ids,
+            result.delivered_request_ids,
+            result.retried_request_ids,
+            result.failed_request_ids,
+            result.errors,
+        )
+
+    except Exception:
+        # No se pierde la solicitud:
+        # PENDING_PDF seguirá siendo recogida por el timer.
+        logger.exception(
+            "IMMEDIATE_SPECIAL_PDF_UNEXPECTED "
+            "request_ids=%s",
+            request_ids,
+        )
+
+
 @router.post("/evolution")
 async def evolution_webhook(
     request: FastAPIRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     x_webhook_secret: str | None = Header(
         default=None,
@@ -270,41 +327,86 @@ async def evolution_webhook(
                     .delivery_failed_request_ids,
         }
 
-    # Si no es proveedor ni comando administrativo,
-    # se trata como posible mensaje de cliente.
+    # ---------------------------------------------------------
+    # EJECUCION INMEDIATA EXCLUSIVA:
+    #   - CONSTANCIA_DIRECTA
+    #   - RFC_GENERIC (-G)
     #
-    # NO se crea todavía ninguna Request.
-    # Se conserva durante 60 segundos en Redis para
-    # permitir que el usuario lo elimine de WhatsApp.
-    due_at = enqueue_client_message(
-        DelayedClientMessage(
-            instance=parsed.instance,
-            message_id=parsed.message_id,
-            source_jid=parsed.source_jid,
-            sender_jid=parsed.sender_jid,
-            sender_name=parsed.sender_name,
-            text=parsed.text,
-        ),
-        delay_seconds=60,
+    # Todo mensaje normal conserva EXACTAMENTE los 60 segundos.
+    # También cualquier mensaje mixto con texto/localización
+    # adicional conserva la espera normal.
+    # ---------------------------------------------------------
+
+    preview_direct = extract_direct_requests(
+        parsed.text
     )
+
+    preview_without_direct = (
+        strip_direct_requests(parsed.text)
+        if preview_direct
+        else parsed.text
+    )
+
+    preview_generic = extract_generic_requests(
+        preview_without_direct
+    )
+
+    preview_remainder = (
+        strip_generic_requests(
+            preview_without_direct
+        )
+        if preview_generic
+        else preview_without_direct
+    )
+
+    special_only = bool(
+        preview_direct
+        or preview_generic
+    ) and not preview_remainder.strip()
+
+    if not special_only:
+        # Flujo histórico SIN CAMBIOS:
+        # RFC/IDCIF normal, PDF automático,
+        # localizaciones y demás solicitudes esperan 60 s.
+        due_at = enqueue_client_message(
+            DelayedClientMessage(
+                instance=parsed.instance,
+                message_id=parsed.message_id,
+                source_jid=parsed.source_jid,
+                sender_jid=parsed.sender_jid,
+                sender_name=parsed.sender_name,
+                text=parsed.text,
+            ),
+            delay_seconds=60,
+        )
+
+        logger.info(
+            "Mensaje cliente puesto en espera "
+            "message_id=%s source_jid=%s "
+            "delay_seconds=60 due_at=%s",
+            parsed.message_id,
+            parsed.source_jid,
+            due_at,
+        )
+
+        return {
+            "ok": True,
+            "ignored": False,
+            "message_type":
+                "CLIENT_REQUEST_DELAYED",
+            "message_id": parsed.message_id,
+            "delay_seconds": 60,
+        }
 
     logger.info(
-        "Mensaje cliente puesto en espera "
+        "SPECIAL_REQUEST_IMMEDIATE "
         "message_id=%s source_jid=%s "
-        "delay_seconds=60 due_at=%s",
+        "direct=%s generic=%s",
         parsed.message_id,
         parsed.source_jid,
-        due_at,
+        len(preview_direct),
+        len(preview_generic),
     )
-
-    return {
-        "ok": True,
-        "ignored": False,
-        "message_type":
-            "CLIENT_REQUEST_DELAYED",
-        "message_id": parsed.message_id,
-        "delay_seconds": 60,
-    }
 
     # Código histórico conservado temporalmente
     # debajo para facilitar rollback.
@@ -532,6 +634,21 @@ async def evolution_webhook(
                 parsed.message_id,
                 parsed.source_jid,
             )
+
+    if special_only and result.created_ids:
+        # El procesador vuelve a verificar service_type,
+        # por lo que RFC_IDCIF normal nunca puede entrar.
+        background_tasks.add_task(
+            _run_immediate_special_pdfs,
+            list(result.created_ids),
+        )
+
+        logger.info(
+            "SPECIAL_REQUEST_BACKGROUND_SCHEDULED "
+            "message_id=%s request_ids=%s",
+            parsed.message_id,
+            result.created_ids,
+        )
 
     return {
         "ok": True,

@@ -99,21 +99,62 @@ def normalize_direct_text(value: str) -> str:
 def _find_direct_matches(
     normalized: str,
 ) -> list[re.Match[str]]:
-    matches: list[re.Match[str]] = []
+    candidates: list[re.Match[str]] = []
 
     for pattern in DIRECT_REQUEST_PATTERNS:
-        matches.extend(
+        candidates.extend(
             pattern.finditer(normalized)
         )
 
-    matches.sort(
+    # Un mismo bloque puede coincidir en ambos sentidos:
+    #
+    # RFC1 IDCIF1
+    # RFC2 IDCIF2
+    #
+    # Antes, además de los dos pares correctos, el patrón
+    # IDCIF_FIRST podía interpretar:
+    #
+    # IDCIF1 + RFC2
+    #
+    # porque \\s+ acepta también saltos de línea.
+    #
+    # Damos prioridad a parejas contenidas en la misma línea
+    # y después aceptamos únicamente coincidencias que no se
+    # superpongan con otra ya elegida. Esto conserva soporte
+    # para RFC/IDCIF enviados en dos líneas, pero evita el
+    # corrimiento entre solicitudes consecutivas.
+    candidates.sort(
+        key=lambda item: (
+            "\n" in item.group(0),
+            item.start(),
+            item.end(),
+        )
+    )
+
+    selected: list[re.Match[str]] = []
+
+    for candidate in candidates:
+        overlaps = any(
+            candidate.start() < current.end()
+            and current.start() < candidate.end()
+            for current in selected
+        )
+
+        if overlaps:
+            continue
+
+        selected.append(candidate)
+
+    # La prioridad anterior sirve solo para resolver conflictos.
+    # La salida final debe conservar el orden original del mensaje.
+    selected.sort(
         key=lambda item: (
             item.start(),
             item.end(),
         )
     )
 
-    return matches
+    return selected
 
 
 def extract_direct_requests(
@@ -161,15 +202,21 @@ def strip_direct_requests(
 ) -> str:
     normalized = normalize_direct_text(text)
 
-    # Sustituimos en ambos sentidos para que el
-    # RFC de una constancia directa nunca caiga
-    # al parser de localización.
-    output = normalized
+    # Usa exactamente las mismas coincidencias depuradas que
+    # extract_direct_requests. Así un IDCIF de una solicitud
+    # nunca se consume junto con el RFC de la siguiente.
+    matches = _find_direct_matches(normalized)
 
-    for pattern in DIRECT_REQUEST_PATTERNS:
-        output = pattern.sub(
-            " ",
-            output,
+    if not matches:
+        return normalized
+
+    output = list(normalized)
+
+    for match in matches:
+        output[
+            match.start():match.end()
+        ] = " " * (
+            match.end() - match.start()
         )
 
-    return output
+    return "".join(output)

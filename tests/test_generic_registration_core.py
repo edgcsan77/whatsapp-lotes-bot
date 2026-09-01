@@ -187,7 +187,7 @@ def test_disabled_generic_is_not_created() -> None:
                     client.whatsapp_jid,
                 sender_jid=None,
                 sender_name=None,
-                text=f"{RFC}-G",
+                text=f"{RFC}#",
             ),
         )
 
@@ -196,7 +196,7 @@ def test_disabled_generic_is_not_created() -> None:
         assert (
             result
             .generic_not_enabled_identifiers
-            == [f"{RFC}-G"]
+            == [f"{RFC}#"]
         )
 
         assert list(
@@ -226,7 +226,7 @@ def test_curp_generic_never_uses_provider() -> None:
                     client.whatsapp_jid,
                 sender_jid=None,
                 sender_name=None,
-                text=f"{CURP} - G",
+                text=f"{CURP}#",
             ),
         )
 
@@ -279,7 +279,7 @@ def test_normal_and_generic_same_rfc_coexist() -> None:
                 sender_name=None,
                 text=(
                     f"{RFC}\n"
-                    f"{RFC} - G"
+                    f"{RFC}#"
                 ),
             ),
         )

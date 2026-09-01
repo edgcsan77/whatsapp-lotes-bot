@@ -19,18 +19,27 @@ RFC_VALUE_PATTERN = (
     r"[A-Z0-9]{3}"
 )
 
-GENERIC_REQUEST_PATTERN = re.compile(
+GENERIC_CURP_PATTERN = re.compile(
     r"(?<![A-Z0-9Ñ&])"
-    rf"(?P<identifier>"
-    rf"(?:{CURP_VALUE_PATTERN})"
-    rf"|(?:{RFC_VALUE_PATTERN})"
-    rf")"
+    rf"(?P<identifier>{CURP_VALUE_PATTERN})"
     r"\s*"
-    r"[-–—]"
-    r"\s*"
-    r"G"
+    r"\#"
     r"(?![A-Z0-9Ñ&])",
     re.IGNORECASE,
+)
+
+GENERIC_RFC_PATTERN = re.compile(
+    r"(?<![A-Z0-9Ñ&])"
+    rf"(?P<identifier>{RFC_VALUE_PATTERN})"
+    r"\s*"
+    r"#"
+    r"(?![A-Z0-9Ñ&])",
+    re.IGNORECASE,
+)
+
+GENERIC_REQUEST_PATTERNS = (
+    ("CURP", GENERIC_CURP_PATTERN),
+    ("RFC", GENERIC_RFC_PATTERN),
 )
 
 
@@ -79,23 +88,40 @@ def extract_generic_requests(
         tuple[str, str]
     ] = set()
 
-    for match in (
-        GENERIC_REQUEST_PATTERN
-        .finditer(normalized)
+    matches: list[
+        tuple[int, int, str, re.Match[str]]
+    ] = []
+
+    for identifier_type, pattern in (
+        GENERIC_REQUEST_PATTERNS
     ):
+        for match in pattern.finditer(normalized):
+            matches.append(
+                (
+                    match.start(),
+                    match.end(),
+                    identifier_type,
+                    match,
+                )
+            )
+
+    matches.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+        )
+    )
+
+    for (
+        _start,
+        _end,
+        identifier_type,
+        match,
+    ) in matches:
         identifier = (
             match.group("identifier")
             .strip()
             .upper()
-        )
-
-        identifier_type: Literal[
-            "CURP",
-            "RFC",
-        ] = (
-            "CURP"
-            if len(identifier) == 18
-            else "RFC"
         )
 
         deduplication_key = (
@@ -115,17 +141,18 @@ def extract_generic_requests(
                 "CURP_NL_SEPOMEX_"
                 "NO_CHECKID"
             )
-
             rfc = None
             curp = identifier
-
-        else:
-            lookup_route = (
-                "RFC_CHECKID"
+            display_identifier = (
+                f"{identifier}#"
             )
-
+        else:
+            lookup_route = "RFC_CHECKID"
             rfc = identifier
             curp = None
+            display_identifier = (
+                f"{identifier}#"
+            )
 
         output.append(
             ParsedGenericRequest(
@@ -134,11 +161,9 @@ def extract_generic_requests(
                 identifier=identifier,
                 rfc=rfc,
                 curp=curp,
-                lookup_route=
-                    lookup_route,
-                display_identifier=(
-                    f"{identifier}-G"
-                ),
+                lookup_route=lookup_route,
+                display_identifier=
+                    display_identifier,
             )
         )
 
@@ -152,10 +177,14 @@ def strip_generic_requests(
         text
     )
 
-    return (
-        GENERIC_REQUEST_PATTERN
-        .sub(
+    output = normalized
+
+    for _identifier_type, pattern in (
+        GENERIC_REQUEST_PATTERNS
+    ):
+        output = pattern.sub(
             " ",
-            normalized,
+            output,
         )
-    )
+
+    return output

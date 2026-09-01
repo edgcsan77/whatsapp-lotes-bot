@@ -650,3 +650,92 @@ async def process_pending_pdfs(
         )
 
     return result
+
+
+async def process_immediate_special_pdfs(
+    db: Session,
+    *,
+    request_ids: list[int],
+    now: datetime | None = None,
+) -> PdfProcessingRunResult:
+    """
+    Procesamiento inmediato EXCLUSIVO para:
+    - CONSTANCIA_DIRECTA
+    - RFC_GENERIC
+
+    Nunca reclama RFC_IDCIF normal ni PDF automático.
+    Los timers normales permanecen como respaldo.
+    """
+
+    result = PdfProcessingRunResult()
+
+    ids = sorted(
+        {
+            int(value)
+            for value in request_ids
+            if int(value) > 0
+        }
+    )
+
+    if not ids:
+        return result
+
+    current_time = normalize_utc(
+        now or datetime.now(UTC)
+    )
+
+    requests = list(
+        db.scalars(
+            select(Request)
+            .where(
+                Request.id.in_(ids),
+                Request.delivery_format == "PDF",
+                Request.status == "PENDING_PDF",
+                Request.service_type.in_(
+                    [
+                        "CONSTANCIA_DIRECTA",
+                        "RFC_GENERIC",
+                    ]
+                ),
+                or_(
+                    Request.pdf_next_attempt_at.is_(None),
+                    Request.pdf_next_attempt_at
+                    <= current_time,
+                ),
+            )
+            .order_by(
+                Request.received_at.asc(),
+                Request.id.asc(),
+            )
+            .with_for_update(
+                skip_locked=True
+            )
+        )
+    )
+
+    claimed_ids: list[int] = []
+
+    for request in requests:
+        request.status = "PDF_GENERATING"
+        request.pdf_status = "GENERATING"
+        request.pdf_started_at = current_time
+        request.pdf_error = None
+
+        claimed_ids.append(request.id)
+
+    if claimed_ids:
+        db.commit()
+
+    result.checked_requests = len(
+        claimed_ids
+    )
+
+    for request_id in claimed_ids:
+        await process_one_pdf_request(
+            db,
+            request_id=request_id,
+            now=current_time,
+            result=result,
+        )
+
+    return result
