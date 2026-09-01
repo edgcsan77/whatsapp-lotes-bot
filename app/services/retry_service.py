@@ -655,10 +655,463 @@ async def retry_failed_delivery_group(
             )
 
 
+async def retry_idcif_validation_request(
+    db: Session,
+    *,
+    request: Request,
+    result: RetryRunResult,
+) -> None:
+    """
+    Revalida RFC+IDCIF ya recibido del proveedor.
+
+    IMPORTANTE:
+    - No vuelve a mandar la solicitud al proveedor.
+    - Solo vuelve a consultar el backend/SAT.
+    - Si valida, entrega al cliente.
+    - Si SAT lo rechaza de forma terminal, regresa la petición
+      al mismo proveedor para corrección.
+    - Si sigue temporal, programa otro intento.
+    """
+    from app.services.pdf_backend_client import (
+        PdfBackendError,
+        validate_rfc_idcif,
+    )
+    from app.services.idcif_validation import (
+        build_idcif_failure_message,
+        build_temporary_failure_message,
+        is_terminal_code,
+    )
+
+    kind = "idcif_validation"
+    item_id = request.id
+
+    attempts = get_attempts(
+        kind,
+        item_id,
+    )
+
+    if attempts >= MAX_RETRY_ATTEMPTS:
+        return
+
+    if not is_retry_due(
+        kind,
+        item_id,
+    ):
+        result.skipped_not_due.append(
+            f"{kind}:{item_id}"
+        )
+        return
+
+    lock = redis_client.lock(
+        retry_lock_key(
+            kind,
+            item_id,
+        ),
+        timeout=120,
+        blocking_timeout=0,
+    )
+
+    acquired = bool(
+        lock.acquire(blocking=False)
+    )
+
+    if not acquired:
+        result.skipped_locked.append(
+            f"{kind}:{item_id}"
+        )
+        return
+
+    try:
+        db.expire_all()
+
+        fresh = db.get(
+            Request,
+            item_id,
+        )
+
+        if fresh is None:
+            clear_retry_state(
+                kind,
+                item_id,
+            )
+            return
+
+        if (
+            fresh.status
+            != "IDCIF_VALIDATION_RETRY"
+            or str(
+                fresh.result_code or ""
+            ).strip().upper()
+            != "SAT_TEMPORAL_ERROR"
+        ):
+            clear_retry_state(
+                kind,
+                item_id,
+            )
+            return
+
+        rfc = str(
+            fresh.rfc or ""
+        ).strip().upper()
+
+        idcif = str(
+            fresh.idcif or ""
+        ).strip()
+
+        if not rfc or not idcif:
+            clear_retry_state(
+                kind,
+                item_id,
+            )
+
+            fresh.status = (
+                "IDCIF_VALIDATION_FAILED"
+            )
+            fresh.sale_price = 0
+            db.commit()
+
+            result.exhausted_request_ids.append(
+                item_id
+            )
+            return
+
+        client = db.get(
+            Client,
+            fresh.client_id,
+        )
+
+        provider = (
+            db.get(
+                Provider,
+                fresh.provider_id,
+            )
+            if fresh.provider_id is not None
+            else None
+        )
+
+        if client is None or provider is None:
+            attempt = register_retry_failure(
+                kind,
+                item_id,
+                "IDCIF_VALIDATION_CONTEXT_MISSING",
+            )
+
+            if attempt >= MAX_RETRY_ATTEMPTS:
+                fresh.status = (
+                    "IDCIF_VALIDATION_FAILED"
+                )
+                fresh.sale_price = 0
+                db.commit()
+
+                result.exhausted_request_ids.append(
+                    item_id
+                )
+
+            return
+
+        result.retried_request_ids.append(
+            item_id
+        )
+
+        try:
+            validation = (
+                await validate_rfc_idcif(
+                    rfc=rfc,
+                    idcif=idcif,
+                )
+            )
+
+        except PdfBackendError as error:
+            attempt = register_retry_failure(
+                kind,
+                item_id,
+                error,
+            )
+
+            logger.warning(
+                "IDCIF validation retry temporal "
+                "request_id=%s attempt=%s error=%s",
+                item_id,
+                attempt,
+                error,
+            )
+
+            if attempt < MAX_RETRY_ATTEMPTS:
+                return
+
+            # Agotó todos los intentos.
+            fresh.status = (
+                "IDCIF_VALIDATION_FAILED"
+            )
+            fresh.result_code = (
+                "SAT_TEMPORAL_ERROR"
+            )
+            fresh.sale_price = 0
+
+            db.commit()
+
+            try:
+                await send_text_message(
+                    destination_jid=
+                        client.whatsapp_jid,
+                    text=build_temporary_failure_message(
+                        rfc=rfc,
+                        idcif=idcif,
+                    ),
+                    instance=
+                        provider.evolution_instance,
+                )
+            except (
+                EvolutionAPIError,
+                ValueError,
+            ):
+                logger.exception(
+                    "No se pudo avisar agotamiento "
+                    "IDCIF validation request_id=%s",
+                    item_id,
+                )
+
+            clear_retry_state(
+                kind,
+                item_id,
+            )
+
+            result.exhausted_request_ids.append(
+                item_id
+            )
+            return
+
+        # ------------------------------------
+        # VALIDACIÓN CORRECTA
+        # ------------------------------------
+        if (
+            validation is not None
+            and validation.valid
+        ):
+            fresh.result_code = "OK"
+
+            text = build_delivery_retry_text(
+                [fresh]
+            )
+
+            try:
+                await send_text_message(
+                    destination_jid=
+                        client.whatsapp_jid,
+                    text=text,
+                    instance=
+                        provider.evolution_instance,
+                )
+
+            except (
+                EvolutionAPIError,
+                ValueError,
+            ) as error:
+                # SAT ya validó.
+                # A partir de aquí es un fallo normal de entrega.
+                fresh.status = "DELIVERY_FAILED"
+                db.commit()
+
+                clear_retry_state(
+                    kind,
+                    item_id,
+                )
+
+                register_retry_failure(
+                    "delivery",
+                    item_id,
+                    error,
+                )
+
+                logger.exception(
+                    "IDCIF validado pero falló entrega "
+                    "request_id=%s",
+                    item_id,
+                )
+                return
+
+            fresh.status = "DELIVERED"
+            fresh.delivered_at = datetime.now(UTC)
+
+            db.commit()
+
+            clear_retry_state(
+                kind,
+                item_id,
+            )
+
+            result.recovered_request_ids.append(
+                item_id
+            )
+
+            logger.info(
+                "IDCIF validation recuperada "
+                "request_id=%s",
+                item_id,
+            )
+            return
+
+        # ------------------------------------
+        # RECHAZO TERMINAL REAL DEL SAT
+        # ------------------------------------
+        if (
+            validation is not None
+            and validation.terminal
+            and is_terminal_code(
+                validation.code
+            )
+        ):
+            code = str(
+                validation.code or ""
+            ).strip().upper()
+
+            fresh.status = "SENT_TO_PROVIDER"
+            fresh.result_code = code
+
+            fresh.sent_to_provider_at = (
+                datetime.now(UTC)
+            )
+            fresh.provider_replied_at = None
+
+            db.commit()
+
+            try:
+                await send_text_message(
+                    destination_jid=
+                        provider.whatsapp_jid,
+                    text=build_idcif_failure_message(
+                        rfc=rfc,
+                        idcif=idcif,
+                        code=code,
+                    ),
+                    instance=
+                        provider.evolution_instance,
+                )
+            except (
+                EvolutionAPIError,
+                ValueError,
+            ):
+                logger.exception(
+                    "No se pudo avisar rechazo SAT "
+                    "al proveedor request_id=%s",
+                    item_id,
+                )
+
+            clear_retry_state(
+                kind,
+                item_id,
+            )
+
+            logger.info(
+                "IDCIF validation terminó en rechazo "
+                "SAT request_id=%s code=%s",
+                item_id,
+                code,
+            )
+            return
+
+        # Respuesta no terminal/no válida:
+        # tratar conservadoramente como temporal.
+        attempt = register_retry_failure(
+            kind,
+            item_id,
+            "IDCIF_VALIDATION_NON_TERMINAL",
+        )
+
+        if attempt >= MAX_RETRY_ATTEMPTS:
+            fresh.status = (
+                "IDCIF_VALIDATION_FAILED"
+            )
+            fresh.result_code = (
+                "SAT_TEMPORAL_ERROR"
+            )
+            fresh.sale_price = 0
+            db.commit()
+
+            try:
+                await send_text_message(
+                    destination_jid=
+                        client.whatsapp_jid,
+                    text=build_temporary_failure_message(
+                        rfc=rfc,
+                        idcif=idcif,
+                    ),
+                    instance=
+                        provider.evolution_instance,
+                )
+            except (
+                EvolutionAPIError,
+                ValueError,
+            ):
+                logger.exception(
+                    "No se pudo avisar error temporal "
+                    "final request_id=%s",
+                    item_id,
+                )
+
+            clear_retry_state(
+                kind,
+                item_id,
+            )
+
+            result.exhausted_request_ids.append(
+                item_id
+            )
+
+    finally:
+        try:
+            lock.release()
+        except Exception:
+            logger.exception(
+                "No se pudo liberar lock IDCIF "
+                "request_id=%s",
+                item_id,
+            )
+
+
 async def process_failed_retries(
     db: Session,
 ) -> RetryRunResult:
     result = RetryRunResult()
+
+    # ============================================================
+    # RFC + IDCIF CON VALIDACIÓN SAT TEMPORAL
+    # ============================================================
+    idcif_validation_requests = list(
+        db.scalars(
+            select(Request)
+            .where(
+                Request.status
+                == "IDCIF_VALIDATION_RETRY",
+                Request.result_code
+                == "SAT_TEMPORAL_ERROR",
+            )
+            .order_by(
+                Request.id.asc()
+            )
+        )
+    )
+
+    for request in idcif_validation_requests:
+        try:
+            await retry_idcif_validation_request(
+                db,
+                request=request,
+                result=result,
+            )
+        except Exception as error:
+            message = (
+                f"request_id={request.id} "
+                "idcif_validation_retry_error="
+                f"{type(error).__name__}:{error}"
+            )
+
+            result.errors.append(
+                message
+            )
+            logger.exception(
+                message
+            )
 
     failed_batches = list(
         db.scalars(

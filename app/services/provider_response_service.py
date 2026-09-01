@@ -901,18 +901,42 @@ async def _validate_matched_idcif_before_delivery(
 
             continue
 
-        # Error temporal: PDF conserva PENDING_PDF para que su worker
-        # haga reintentos. Texto nunca se entrega sin validar.
-        is_pdf = str(request_item.delivery_format or "").strip().upper() == "PDF"
+        # Error temporal:
+        # - PDF conserva su mecanismo propio de retry.
+        # - TEXT queda pendiente de una NUEVA validación SAT.
+        #   NO se vuelve a pedir el resultado al proveedor.
+        #   NO se avisa error al cliente todavía.
+        is_pdf = str(
+            request_item.delivery_format or ""
+        ).strip().upper() == "PDF"
+
         if is_pdf:
             continue
 
-        request_item.status = "IDCIF_VALIDATION_FAILED"
+        request_item.status = "IDCIF_VALIDATION_RETRY"
         request_item.result_code = "SAT_TEMPORAL_ERROR"
-        request_item.sale_price = 0
+
+        # Conserva provider_result, RFC, IDCIF y sale_price.
+        # El resultado del proveedor ya existe; solamente falta
+        # revalidarlo cuando SAT/backend vuelva a responder.
         excluded_ids.add(request_item.id)
-        temporary_notices[client.id].append(
-            build_temporary_failure_message(rfc=pair[0], idcif=pair[1])
+
+        from app.services.retry_service import (
+            register_retry_failure,
+        )
+
+        register_retry_failure(
+            "idcif_validation",
+            request_item.id,
+            error or "SAT_TEMPORAL_ERROR",
+        )
+
+        logger.warning(
+            "IDCIF validation temporal; programado retry "
+            "request_id=%s rfc=%s idcif=%s",
+            request_item.id,
+            pair[0],
+            pair[1],
         )
 
     db.commit()
