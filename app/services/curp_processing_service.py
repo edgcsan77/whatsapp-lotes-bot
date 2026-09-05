@@ -22,17 +22,19 @@ from app.services.curp_rfc_engine import (
 
 logger = logging.getLogger(__name__)
 
-MAX_CURP_ATTEMPTS = 0  # 0 = reintentos ilimitados para fallos temporales
+MAX_CURP_ATTEMPTS = 6
+CURP_PROGRESS_NOTICE_ATTEMPT = 4
 
 CURP_RETRY_DELAYS_MINUTES = {
     1: 1,
     2: 2,
     3: 5,
     4: 10,
-    5: 20,
+    5: 10,
+    6: 10,
 }
 
-CURP_RETRY_MAX_DELAY_MINUTES = 30
+CURP_RETRY_MAX_DELAY_MINUTES = 10
 
 CURP_RETRY_TTL_SECONDS = 60 * 60 * 24 * 14
 
@@ -400,14 +402,98 @@ def resolve_provider(
     return provider
 
 
-async def notify_curp_lookup_failed(
+async def send_curp_client_notice(
+    request: Request,
+    *,
+    text: str,
+    log_label: str,
+) -> None:
+    destination_jid = str(
+        request.source_jid or ""
+    ).strip()
+
+    if not destination_jid:
+        logger.warning(
+            "%s sin source_jid: request_id=%s",
+            log_label,
+            request.id,
+        )
+        return
+
+    try:
+        await send_text_message(
+            destination_jid=destination_jid,
+            text=text,
+        )
+        logger.info(
+            "%s enviado: request_id=%s",
+            log_label,
+            request.id,
+        )
+    except (
+        EvolutionAPIError,
+        ValueError,
+    ):
+        logger.exception(
+            "No se pudo enviar %s: request_id=%s",
+            log_label,
+            request.id,
+        )
+
+
+async def notify_curp_still_processing(
     request: Request,
 ) -> None:
-    # Fallo CURP manejado internamente.
-    # No enviar mensajes confusos al cliente.
-    logger.info(
-        "Aviso CURP fallida suprimido: request_id=%s",
-        request.id,
+    curp = str(
+        request.original_curp
+        or request.identifier_key
+        or ""
+    ).strip().upper()
+
+    await send_curp_client_notice(
+        request,
+        text=(
+            "⏳ Tu solicitud sigue en proceso\n\n"
+            f"CURP: {curp}\n\n"
+            "Estamos reintentando la consulta automáticamente. "
+            "No es necesario volver a enviarla."
+        ),
+        log_label="Aviso CURP en proceso",
+    )
+
+
+async def notify_curp_lookup_failed(
+    request: Request,
+    *,
+    permanent: bool = False,
+) -> None:
+    curp = str(
+        request.original_curp
+        or request.identifier_key
+        or ""
+    ).strip().upper()
+
+    if permanent:
+        detail = (
+            "No fue posible validar esta CURP. "
+            "Verifica que esté escrita correctamente "
+            "y vuelve a enviarla."
+        )
+    else:
+        detail = (
+            "El servicio de consulta no respondió "
+            "después de varios reintentos. "
+            "Puedes solicitarla nuevamente más tarde."
+        )
+
+    await send_curp_client_notice(
+        request,
+        text=(
+            "⚠️ Solicitud no completada\n\n"
+            f"CURP: {curp}\n\n"
+            f"{detail}"
+        ),
+        log_label="Aviso CURP no completada",
     )
 
 
@@ -637,7 +723,8 @@ async def process_pending_curps(
                         )
 
                         await notify_curp_lookup_failed(
-                            refreshed
+                            refreshed,
+                            permanent=True,
                         )
 
                         result\
@@ -651,6 +738,14 @@ async def process_pending_curps(
                                 error,
                             )
                         )
+
+                        if (
+                            attempt
+                            == CURP_PROGRESS_NOTICE_ATTEMPT
+                        ):
+                            await notify_curp_still_processing(
+                                refreshed
+                            )
 
                         if (
                             MAX_CURP_ATTEMPTS > 0
@@ -704,6 +799,14 @@ async def process_pending_curps(
                     )
 
                     if refreshed is not None:
+                        if (
+                            attempt
+                            == CURP_PROGRESS_NOTICE_ATTEMPT
+                        ):
+                            await notify_curp_still_processing(
+                                refreshed
+                            )
+
                         reached_max = (
                             MAX_CURP_ATTEMPTS > 0
                             and attempt
