@@ -22,13 +22,17 @@ from app.services.curp_rfc_engine import (
 
 logger = logging.getLogger(__name__)
 
-MAX_CURP_ATTEMPTS = 3
+MAX_CURP_ATTEMPTS = 0  # 0 = reintentos ilimitados para fallos temporales
 
 CURP_RETRY_DELAYS_MINUTES = {
     1: 1,
     2: 2,
     3: 5,
+    4: 10,
+    5: 20,
 }
+
+CURP_RETRY_MAX_DELAY_MINUTES = 30
 
 CURP_RETRY_TTL_SECONDS = 60 * 60 * 24 * 14
 
@@ -203,9 +207,7 @@ def register_curp_failure(
     delay_minutes = (
         CURP_RETRY_DELAYS_MINUTES.get(
             attempts,
-            CURP_RETRY_DELAYS_MINUTES[
-                MAX_CURP_ATTEMPTS
-            ],
+            CURP_RETRY_MAX_DELAY_MINUTES,
         )
     )
 
@@ -401,52 +403,12 @@ def resolve_provider(
 async def notify_curp_lookup_failed(
     request: Request,
 ) -> None:
-    destination_jid = str(
-        request.source_jid or ""
-    ).strip()
-
-    if not destination_jid:
-        logger.error(
-            "No se pudo avisar fallo CURP: "
-            "request_id=%s source_jid vacío",
-            request.id,
-        )
-        return
-
-    curp = str(
-        request.original_curp
-        or request.identifier_key
-        or ""
-    ).strip().upper()
-
-    text = (
-        "⚠️ No fue posible generar el RFC\n\n"
-        f"CURP: {curp}\n\n"
-        "No se pudo obtener el RFC para esta CURP. "
-        "Puedes intentar nuevamente más tarde."
+    # Fallo CURP manejado internamente.
+    # No enviar mensajes confusos al cliente.
+    logger.info(
+        "Aviso CURP fallida suprimido: request_id=%s",
+        request.id,
     )
-
-    try:
-        await send_text_message(
-            destination_jid=destination_jid,
-            text=text,
-        )
-
-        logger.info(
-            "Aviso CURP fallida enviado: "
-            "request_id=%s",
-            request.id,
-        )
-
-    except (
-        EvolutionAPIError,
-        ValueError,
-    ):
-        logger.exception(
-            "No se pudo enviar aviso de CURP "
-            "fallida: request_id=%s",
-            request.id,
-        )
 
 
 def process_one_curp_request(
@@ -574,7 +536,10 @@ async def process_pending_curps(
                 request_id
             )
 
-            if attempts >= MAX_CURP_ATTEMPTS:
+            if (
+                MAX_CURP_ATTEMPTS > 0
+                and attempts >= MAX_CURP_ATTEMPTS
+            ):
                 request.status = (
                     "CURP_LOOKUP_FAILED"
                 )
@@ -688,7 +653,8 @@ async def process_pending_curps(
                         )
 
                         if (
-                            attempt
+                            MAX_CURP_ATTEMPTS > 0
+                            and attempt
                             >= MAX_CURP_ATTEMPTS
                         ):
                             refreshed.status = (
@@ -739,7 +705,8 @@ async def process_pending_curps(
 
                     if refreshed is not None:
                         reached_max = (
-                            attempt
+                            MAX_CURP_ATTEMPTS > 0
+                            and attempt
                             >= MAX_CURP_ATTEMPTS
                         )
 
